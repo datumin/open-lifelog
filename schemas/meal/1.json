@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-lifelog.org/schemas/meal/1.0",
+  "title": "OLF meal payload",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "input_method": { "type": "string", "enum": ["photo", "text", "manual"] },
+    "source_ref": { "type": "string" },
+    "raw_input": { "type": "string" },
+    "note": { "type": "string" },
+    "total_kcal": { "type": "number", "minimum": 0 },
+    "protein_g": { "type": "number", "minimum": 0 },
+    "fat_g": { "type": "number", "minimum": 0 },
+    "carbs_g": { "type": "number", "minimum": 0 },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/mealItem" } }
+  },
+  "anyOf": [
+    { "required": ["raw_input"] },
+    { "required": ["total_kcal"] },
+    { "required": ["protein_g"] },
+    { "required": ["fat_g"] },
+    { "required": ["carbs_g"] },
+    { "required": ["items"], "properties": { "items": { "minItems": 1 } } }
+  ],
+  "$defs": {
+    "mealItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "grams": { "type": "number", "minimum": 0 },
+        "kcal": { "type": "number", "minimum": 0 },
+        "protein_g": { "type": "number", "minimum": 0 },
+        "fat_g": { "type": "number", "minimum": 0 },
+        "carbs_g": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}
