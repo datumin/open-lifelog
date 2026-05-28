@@ -1,0 +1,13 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+	"files": {
+		"includes": [
+			"**",
+			"!bindings",
+			"!.venv",
+			"!conformance",
+			"!schemas",
+			"!uv.lock"
+		]
+	}
+}
