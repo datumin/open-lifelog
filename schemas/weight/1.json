@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-lifelog.org/schemas/weight/1.0",
+  "title": "OLF weight payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["weight_kg"],
+  "properties": {
+    "weight_kg": { "type": "number", "exclusiveMinimum": 0 },
+    "body_fat_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+    "note": { "type": "string" }
+  }
+}
