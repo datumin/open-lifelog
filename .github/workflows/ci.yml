@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - name: Install dependencies
+        run: mise run install
+      - name: Conformance + schema tests
+        run: mise run test
+      - name: Lint
+        run: mise run lint
+      - name: Regenerate bindings
+        run: mise run gen
+      - name: Bindings are up to date
+        run: git diff --exit-code -- bindings
+      - name: Type-check TS bindings
+        run: mise run typecheck
