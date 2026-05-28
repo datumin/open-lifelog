@@ -1,0 +1,47 @@
+[tools]
+node = "24"
+uv = "latest"
+pnpm = "latest"
+
+[settings]
+lockfile = true
+minimum_release_age = "7d"  # supply-chain: only versions >=7 days old
+
+[tasks.install]
+description = "Install all toolchains and dependencies"
+run = "uv sync && pnpm install"
+
+[tasks.test]
+description = "Run the conformance + schema test suite"
+run = "uv run pytest"
+
+[tasks."gen:py"]
+description = "Generate Python type bindings from schemas"
+run = '''
+uv run datamodel-codegen \
+  --input schemas \
+  --input-file-type jsonschema \
+  --output bindings/python/olf_models.py \
+  --output-model-type pydantic_v2.BaseModel \
+  --use-schema-description \
+  --disable-timestamp
+'''
+
+[tasks."gen:ts"]
+description = "Generate TypeScript type bindings from schemas"
+run = "node scripts/gen_ts.mjs"
+
+[tasks.gen]
+description = "Regenerate all type bindings"
+depends = ["gen:py", "gen:ts"]
+
+[tasks.typecheck]
+description = "Type-check the generated TS bindings"
+run = "pnpm exec tsc --noEmit"
+
+[tasks.lint]
+description = "Lint Python and TS"
+run = '''
+uv run ruff check .
+pnpm exec biome check .
+'''

@@ -1,0 +1,25 @@
+[project]
+name = "open-lifelog-format"
+version = "0.1.0"
+description = "OLF schemas, conformance suite, and Python type bindings"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv]
+package = false
+# supply chain: exclude PyPI releases newer than 7 days at lock time
+exclude-newer = "7d"
+
+[dependency-groups]
+dev = [
+    "jsonschema[format-nongpl]>=4.21",
+    "datamodel-code-generator>=0.25",
+    "pytest>=9.0",
+    "ruff>=0.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+exclude = ["bindings"]
