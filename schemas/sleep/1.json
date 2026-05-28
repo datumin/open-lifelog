@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-lifelog.org/schemas/sleep/1.0",
+  "title": "OLF sleep payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ended_at"],
+  "properties": {
+    "ended_at": { "type": "string", "format": "date-time" },
+    "stages": { "type": "array", "items": { "$ref": "#/$defs/sleepStage" } }
+  },
+  "$defs": {
+    "sleepStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "started_at", "ended_at"],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": ["in_bed", "core", "deep", "rem", "awake", "asleep", "unknown"]
+        },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
