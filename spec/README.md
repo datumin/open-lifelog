@@ -5,12 +5,10 @@ personal lifelog data: typed, versioned JSON records that you own and can carry
 between tools.
 
 - **Version**: 1.0 (draft)
-- **Status**: Draft. The prose specification in this directory is complete and
-  is the normative source of truth. The JSON Schema files in
-  [`../schemas`](../schemas) and the generated type bindings are **not yet
-  present** — they are produced in the SP0 implementation step and MUST conform
-  to this prose. Until then, references to `schemas/<type>/<major>.json` describe
-  where those artifacts will live.
+- **Status**: Draft. The prose specification in this directory is the normative
+  source of truth. The JSON Schema files in [`../schemas`](../schemas) implement
+  it, the [`../conformance`](../conformance) fixtures verify them, and generated
+  type bindings live in [`../bindings`](../bindings).
 - **License**: Apache-2.0 (see [`../LICENSE`](../LICENSE)).
 
 This repository is the **format specification** only. A runtime (storage,

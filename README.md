@@ -40,10 +40,14 @@ Where applicable, payload shapes will align with existing health-data standards
 
 ## Status
 
-Early design. The format specification and v1 schemas are in progress.
+Early but functional. The format specification, the v1 JSON Schemas, a
+conformance test suite, and generated Python/TypeScript type bindings are in
+place.
 
-- [`spec/`](./spec) — format specification (envelope, versioning, namespacing rules)
+- [`spec/`](./spec) — format specification (normative)
 - [`schemas/`](./schemas) — per-type JSON Schemas
+- [`conformance/`](./conformance) — language-neutral accept/reject fixtures
+- [`bindings/`](./bindings) — generated Python and TypeScript types
 
 ## License
 
