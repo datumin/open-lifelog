@@ -7,20 +7,13 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Node (for future schema tooling / validators)
+# Node
 node_modules/
 dist/
 
-# Python (for future validators)
+# Python
 __pycache__/
 *.pyc
 .venv/
-
-# Python
-.venv/
-__pycache__/
 .pytest_cache/
 .ruff_cache/
-
-# Node
-node_modules/
