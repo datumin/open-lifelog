@@ -16,7 +16,7 @@ Every OLF record shares a common **envelope** and carries a type-specific **payl
 ```jsonc
 {
   "id": "uuid",
-  "type": "sleep",                              // reverse-DNS for extensions: "x.acme.mood"
+  "type": "sleep",                              // reverse-DNS for extensions: "x.com.acme.mood"
   "olf_version": "1.0",                         // semver of this type's schema
   "occurred_at": "2026-05-28T23:00:00+09:00",   // when it happened
   "recorded_at": "2026-05-29T07:10:00+09:00",   // when it was recorded
