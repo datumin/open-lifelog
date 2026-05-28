@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, confloat, constr
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class InputMethod(Enum):
@@ -18,12 +19,12 @@ class MealItem(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    name: constr(min_length=1)
-    grams: confloat(ge=0.0) | None = None
-    kcal: confloat(ge=0.0) | None = None
-    protein_g: confloat(ge=0.0) | None = None
-    fat_g: confloat(ge=0.0) | None = None
-    carbs_g: confloat(ge=0.0) | None = None
+    name: Annotated[str, Field(min_length=1)]
+    grams: Annotated[float | None, Field(ge=0.0)] = None
+    kcal: Annotated[float | None, Field(ge=0.0)] = None
+    protein_g: Annotated[float | None, Field(ge=0.0)] = None
+    fat_g: Annotated[float | None, Field(ge=0.0)] = None
+    carbs_g: Annotated[float | None, Field(ge=0.0)] = None
 
 
 class OlfMealPayload1(BaseModel):
@@ -34,10 +35,10 @@ class OlfMealPayload1(BaseModel):
     source_ref: str | None = None
     raw_input: str
     note: str | None = None
-    total_kcal: confloat(ge=0.0) | None = None
-    protein_g: confloat(ge=0.0) | None = None
-    fat_g: confloat(ge=0.0) | None = None
-    carbs_g: confloat(ge=0.0) | None = None
+    total_kcal: Annotated[float | None, Field(ge=0.0)] = None
+    protein_g: Annotated[float | None, Field(ge=0.0)] = None
+    fat_g: Annotated[float | None, Field(ge=0.0)] = None
+    carbs_g: Annotated[float | None, Field(ge=0.0)] = None
     items: list[MealItem] | None = None
 
 
@@ -49,10 +50,10 @@ class OlfMealPayload2(BaseModel):
     source_ref: str | None = None
     raw_input: str | None = None
     note: str | None = None
-    total_kcal: confloat(ge=0.0)
-    protein_g: confloat(ge=0.0) | None = None
-    fat_g: confloat(ge=0.0) | None = None
-    carbs_g: confloat(ge=0.0) | None = None
+    total_kcal: Annotated[float, Field(ge=0.0)]
+    protein_g: Annotated[float | None, Field(ge=0.0)] = None
+    fat_g: Annotated[float | None, Field(ge=0.0)] = None
+    carbs_g: Annotated[float | None, Field(ge=0.0)] = None
     items: list[MealItem] | None = None
 
 
@@ -64,10 +65,10 @@ class OlfMealPayload3(BaseModel):
     source_ref: str | None = None
     raw_input: str | None = None
     note: str | None = None
-    total_kcal: confloat(ge=0.0) | None = None
-    protein_g: confloat(ge=0.0)
-    fat_g: confloat(ge=0.0) | None = None
-    carbs_g: confloat(ge=0.0) | None = None
+    total_kcal: Annotated[float | None, Field(ge=0.0)] = None
+    protein_g: Annotated[float, Field(ge=0.0)]
+    fat_g: Annotated[float | None, Field(ge=0.0)] = None
+    carbs_g: Annotated[float | None, Field(ge=0.0)] = None
     items: list[MealItem] | None = None
 
 
@@ -79,10 +80,10 @@ class OlfMealPayload4(BaseModel):
     source_ref: str | None = None
     raw_input: str | None = None
     note: str | None = None
-    total_kcal: confloat(ge=0.0) | None = None
-    protein_g: confloat(ge=0.0) | None = None
-    fat_g: confloat(ge=0.0)
-    carbs_g: confloat(ge=0.0) | None = None
+    total_kcal: Annotated[float | None, Field(ge=0.0)] = None
+    protein_g: Annotated[float | None, Field(ge=0.0)] = None
+    fat_g: Annotated[float, Field(ge=0.0)]
+    carbs_g: Annotated[float | None, Field(ge=0.0)] = None
     items: list[MealItem] | None = None
 
 
@@ -94,10 +95,10 @@ class OlfMealPayload5(BaseModel):
     source_ref: str | None = None
     raw_input: str | None = None
     note: str | None = None
-    total_kcal: confloat(ge=0.0) | None = None
-    protein_g: confloat(ge=0.0) | None = None
-    fat_g: confloat(ge=0.0) | None = None
-    carbs_g: confloat(ge=0.0)
+    total_kcal: Annotated[float | None, Field(ge=0.0)] = None
+    protein_g: Annotated[float | None, Field(ge=0.0)] = None
+    fat_g: Annotated[float | None, Field(ge=0.0)] = None
+    carbs_g: Annotated[float, Field(ge=0.0)]
     items: list[MealItem] | None = None
 
 
@@ -109,11 +110,11 @@ class OlfMealPayload6(BaseModel):
     source_ref: str | None = None
     raw_input: str | None = None
     note: str | None = None
-    total_kcal: confloat(ge=0.0) | None = None
-    protein_g: confloat(ge=0.0) | None = None
-    fat_g: confloat(ge=0.0) | None = None
-    carbs_g: confloat(ge=0.0) | None = None
-    items: list[MealItem] = Field(..., min_length=1)
+    total_kcal: Annotated[float | None, Field(ge=0.0)] = None
+    protein_g: Annotated[float | None, Field(ge=0.0)] = None
+    fat_g: Annotated[float | None, Field(ge=0.0)] = None
+    carbs_g: Annotated[float | None, Field(ge=0.0)] = None
+    items: Annotated[list[MealItem], Field(min_length=1)]
 
 
 class OlfMealPayload(
@@ -126,11 +127,12 @@ class OlfMealPayload(
         | OlfMealPayload6
     ]
 ):
-    root: (
+    root: Annotated[
         OlfMealPayload1
         | OlfMealPayload2
         | OlfMealPayload3
         | OlfMealPayload4
         | OlfMealPayload5
-        | OlfMealPayload6
-    ) = Field(..., title='OLF meal payload')
+        | OlfMealPayload6,
+        Field(title='OLF meal payload'),
+    ]

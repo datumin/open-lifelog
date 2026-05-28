@@ -26,6 +26,7 @@ for t in envelope weight steps meal sleep; do
     --output "bindings/python/$t.py" \
     --output-model-type pydantic_v2.BaseModel \
     --use-schema-description \
+    --use-annotated \
     --disable-timestamp
 done
 '''
@@ -39,8 +40,11 @@ description = "Regenerate all type bindings"
 depends = ["gen:py", "gen:ts"]
 
 [tasks.typecheck]
-description = "Type-check the generated TS bindings"
-run = "pnpm exec tsc --noEmit"
+description = "Type-check Python and TS"
+run = '''
+uv run ty check
+pnpm exec tsc --noEmit
+'''
 
 [tasks.lint]
 description = "Lint Python and TS"

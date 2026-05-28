@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, PositiveFloat, confloat
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OlfWeightPayload(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    weight_kg: PositiveFloat
-    body_fat_percent: confloat(ge=0.0, le=100.0) | None = None
+    weight_kg: Annotated[float, Field(gt=0.0)]
+    body_fat_percent: Annotated[float | None, Field(ge=0.0, le=100.0)] = None
     note: str | None = None

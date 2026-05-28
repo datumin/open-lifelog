@@ -3,13 +3,14 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+from jsonschema.protocols import Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "schemas"
 CONFORMANCE = ROOT / "conformance"
 
 
-def _validator(type_name: str) -> Draft202012Validator:
+def _validator(type_name: str) -> Validator:
     schema = json.loads((SCHEMAS / type_name / "1.json").read_text())
     return Draft202012Validator(
         schema, format_checker=Draft202012Validator.FORMAT_CHECKER

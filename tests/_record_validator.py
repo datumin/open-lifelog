@@ -2,12 +2,13 @@ import json
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from jsonschema.protocols import Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "schemas"
 
 
-def _validator(rel_path: str) -> Draft202012Validator:
+def _validator(rel_path: str) -> Validator:
     schema = json.loads((SCHEMAS / rel_path).read_text())
     return Draft202012Validator(
         schema, format_checker=Draft202012Validator.FORMAT_CHECKER

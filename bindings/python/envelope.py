@@ -3,18 +3,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, constr
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 class OlfEnvelope(BaseModel):
-    id: UUID
-    type: constr(pattern=r'^([a-z][a-z0-9_]*|x(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?){2,})$')
-    olf_version: constr(pattern=r'^[0-9]+\.[0-9]+$')
+    id: Annotated[
+        UUID,
+        Field(pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+    ]
+    type: Annotated[
+        str,
+        Field(pattern='^([a-z][a-z0-9_]*|x(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?){2,})$'),
+    ]
+    olf_version: Annotated[str, Field(pattern='^[0-9]+\\.[0-9]+$')]
     occurred_at: AwareDatetime
     recorded_at: AwareDatetime
-    tz: constr(min_length=1) | None = None
-    source: constr(pattern=r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+    tz: Annotated[str | None, Field(min_length=1)] = None
+    source: Annotated[str, Field(pattern='^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')]
     payload: dict[str, Any]

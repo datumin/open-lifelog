@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, conint
+from typing import Annotated
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 class OlfStepsPayload(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
     )
-    count: conint(ge=0)
+    count: Annotated[int, Field(ge=0)]
     ended_at: AwareDatetime

@@ -16,6 +16,7 @@ dev = [
     "datamodel-code-generator>=0.25",
     "pytest>=9.0",
     "ruff>=0.14",
+    "ty>=0.0.38",
 ]
 
 [tool.pytest.ini_options]
