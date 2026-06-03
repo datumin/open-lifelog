@@ -154,17 +154,18 @@ OLF uses a single flat `type` namespace split into two reserved regions.
 
 ## Reference validation library
 
-OLF ships, alongside the schemas:
+The **JSON Schemas** themselves are the normative, shipped artifact. Any consumer
+can validate with an off-the-shelf JSON Schema validator in any language.
 
-- The **JSON Schemas** themselves (the normative artifacts). Any consumer can
-  validate with an off-the-shelf JSON Schema validator in any language.
-- **Generated type bindings** for Python and TypeScript, produced from the
-  schemas. These give consuming code static types without hand-maintaining a
-  second source of truth. Generation is mechanical (schema → types) so the
-  schemas remain the single source of truth.
+**Type bindings are not shipped as a maintained artifact.** Because generation is
+mechanical (schema → types), consumers generate bindings for their own language on
+demand and keep the schemas as the single source of truth — there is no
+second source of truth to hand-maintain. This repository exercises that codegen
+for Python (pydantic) as a schema-quality gate, but does not commit or publish the
+output.
 
-OLF does **not** ship hand-written, separately-maintained validator packages in
-v1. Validation is "load schema + run a standard validator"; only the *type
-bindings* are generated for developer ergonomics. The exact generators,
-package names, and publication targets are an implementation concern (see the
-SP0 implementation plan).
+OLF does **not** ship hand-written, separately-maintained validator or binding
+packages in v1. Validation is "load schema + run a standard validator"; type
+bindings are a generate-on-demand convenience. The exact generators, package
+names, and publication targets are an implementation concern (see the SP0
+implementation plan).

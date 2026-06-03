@@ -22,5 +22,6 @@ Initial draft of OLF (open-lifelog-format).
 - **v1 payload types**: `meal`, `sleep`, `steps`, `weight`.
 - **Conformance suite**: language-neutral accept/reject fixtures with a pytest
   runner, plus a two-step record validator.
-- **Type bindings**: generated Python and TypeScript types.
+- **Codegen gate**: schemas are verified to generate clean pydantic models that
+  round-trip real data (bindings are generated on demand, not shipped).
 - Non-normative [Open mHealth / IEEE 1752.1 interop mapping](./spec/interop-open-mhealth.md).

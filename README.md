@@ -40,14 +40,16 @@ Where applicable, payload shapes will align with existing health-data standards
 
 ## Status
 
-Early but functional. The format specification, the v1 JSON Schemas, a
-conformance test suite, and generated Python/TypeScript type bindings are in
-place.
+Early but functional. The format specification, the v1 JSON Schemas, and a
+conformance test suite are in place.
 
 - [`spec/`](./spec) — format specification (normative)
 - [`schemas/`](./schemas) — per-type JSON Schemas
 - [`conformance/`](./conformance) — language-neutral accept/reject fixtures
-- [`bindings/`](./bindings) — generated Python and TypeScript types
+
+Typed bindings aren't shipped as a committed artifact — generate pydantic models
+on demand from the schemas with `mise run gen` (output goes to `.gen/`, which is
+gitignored). CI exercises this codegen as a schema-quality gate.
 
 ## License
 

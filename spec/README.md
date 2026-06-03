@@ -7,8 +7,8 @@ between tools.
 - **Version**: 1.0 (draft)
 - **Status**: Draft. The prose specification in this directory is the normative
   source of truth. The JSON Schema files in [`../schemas`](../schemas) implement
-  it, the [`../conformance`](../conformance) fixtures verify them, and generated
-  type bindings live in [`../bindings`](../bindings).
+  it and the [`../conformance`](../conformance) fixtures verify them. Type
+  bindings are generated mechanically from the schemas on demand, not shipped.
 - **License**: Apache-2.0 (see [`../LICENSE`](../LICENSE)).
 
 This repository is the **format specification** only. A runtime (storage,

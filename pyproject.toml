@@ -1,7 +1,7 @@
 [project]
 name = "open-lifelog-format"
 version = "0.1.0"
-description = "OLF schemas, conformance suite, and Python type bindings"
+description = "OLF schemas and language-neutral conformance suite"
 requires-python = ">=3.13"
 dependencies = []
 
@@ -23,4 +23,4 @@ dev = [
 testpaths = ["tests"]
 
 [tool.ruff]
-exclude = ["bindings"]
+exclude = [".gen"]

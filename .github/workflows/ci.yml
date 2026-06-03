@@ -17,9 +17,5 @@ jobs:
         run: mise run test
       - name: Lint
         run: mise run lint
-      - name: Regenerate bindings
-        run: mise run gen
-      - name: Bindings are up to date
-        run: git diff --exit-code -- bindings
-      - name: Type-check TS bindings
+      - name: Type-check
         run: mise run typecheck

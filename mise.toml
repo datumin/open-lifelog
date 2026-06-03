@@ -1,29 +1,27 @@
 [tools]
-node = "24"
 uv = "latest"
-pnpm = "latest"
 
 [settings]
 lockfile = true
 minimum_release_age = "7d"  # supply-chain: only versions >=7 days old
 
 [tasks.install]
-description = "Install all toolchains and dependencies"
-run = "uv sync && pnpm install"
+description = "Install dependencies"
+run = "uv sync"
 
 [tasks.test]
 description = "Run the conformance + schema test suite"
 run = "uv run pytest"
 
-[tasks."gen:py"]
-description = "Generate Python type bindings from schemas"
+[tasks.gen]
+description = "Generate Python type bindings from schemas (into .gen/, gitignored)"
 run = '''
-mkdir -p bindings/python
+mkdir -p .gen/python
 for t in envelope weight steps meal sleep; do
   uv run datamodel-codegen \
     --input "schemas/$t/1.json" \
     --input-file-type jsonschema \
-    --output "bindings/python/$t.py" \
+    --output ".gen/python/$t.py" \
     --output-model-type pydantic_v2.BaseModel \
     --use-schema-description \
     --use-annotated \
@@ -31,24 +29,10 @@ for t in envelope weight steps meal sleep; do
 done
 '''
 
-[tasks."gen:ts"]
-description = "Generate TypeScript type bindings from schemas"
-run = "node scripts/gen_ts.mjs"
-
-[tasks.gen]
-description = "Regenerate all type bindings"
-depends = ["gen:py", "gen:ts"]
-
 [tasks.typecheck]
-description = "Type-check Python and TS"
-run = '''
-uv run ty check
-pnpm exec tsc --noEmit
-'''
+description = "Type-check Python"
+run = "uv run ty check"
 
 [tasks.lint]
-description = "Lint Python and TS"
-run = '''
-uv run ruff check .
-pnpm exec biome check .
-'''
+description = "Lint Python"
+run = "uv run ruff check ."

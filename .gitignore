@@ -7,13 +7,12 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Node
-node_modules/
-dist/
-
 # Python
 __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Generated type bindings (codegen gate output; not committed)
+.gen/
