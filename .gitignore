@@ -16,3 +16,6 @@ __pycache__/
 
 # Generated type bindings (codegen gate output; not committed)
 .gen/
+
+# GoReleaser build output
+/dist/
