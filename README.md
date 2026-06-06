@@ -75,6 +75,22 @@ sha256sum -c checksums.txt --ignore-missing
 The `olf` binary is versioned independently of the OLF format (semver,
 starting at `v0.1.0`).
 
+### Uninstall
+
+`olf` is a single static binary and keeps all its state under the `--data`
+directory you point it at (the JSONL lifelog plus `meta.db`) — it writes nothing
+to `~/.config`, installs no background service. To remove it:
+
+```sh
+rm "$(command -v olf)"   # e.g. /usr/local/bin/olf or ~/.local/bin/olf
+```
+
+Your lifelog data is yours; delete it only if you mean to (this is irreversible):
+
+```sh
+rm -rf ./lifelog         # whatever you passed to --data
+```
+
 ## Status
 
 Early but functional. The format specification, the v1 JSON Schemas, and a
