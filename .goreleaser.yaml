@@ -1,0 +1,50 @@
+version: 2
+
+before:
+  hooks:
+    # go:embed 用に canonical schema を node 配下へ同期(既存 mise タスクを再利用)。
+    # `goreleaser release --snapshot` でも同じ前処理が走る。
+    - sh -c "cd node && mise run sync-schemas"
+
+builds:
+  - id: olf
+    dir: node
+    main: ./cmd/olf
+    binary: olf
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - { goos: windows, goarch: arm64 }
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: olf
+    name_template: "olf_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - { goos: windows, formats: [zip] }
+    files: [README.md, LICENSE, CHANGELOG.md]
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+      - "--yes"
+    output: true
+
+release:
+  github: { owner: datumin, name: open-lifelog }
+  prerelease: auto
