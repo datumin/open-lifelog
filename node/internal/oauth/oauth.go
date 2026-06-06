@@ -24,6 +24,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -109,6 +110,7 @@ func New(store *meta.Store, baseURL string, owner OwnerAuth, grants *pep.Store, 
 
 // Register mounts the OAuth endpoints on mux.
 func (s *Server) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /lifelog.css", s.styleSheet)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.authServerMetadata)
 	// Some clients probe the OIDC discovery path; serve the same AS metadata.
 	mux.HandleFunc("GET /.well-known/openid-configuration", s.authServerMetadata)
@@ -610,40 +612,240 @@ func windowDates(w pep.Window, loc *time.Location) (from, to string) {
 	return from, to
 }
 
+// --- shared stylesheet ---
+
+// lifelogCSS is the owner UI's single self-hosted stylesheet (ClaudeDesign
+// "calm slate-neutral" system). Served at /lifelog.css; zero remote deps.
+//
+//go:embed assets/lifelog.css
+var lifelogCSS []byte
+
+func (s *Server) styleSheet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(lifelogCSS)
+}
+
 // --- owner home page ---
 
 var homeTmpl = template.Must(template.New("home").Parse(`<!doctype html>
-<title>open-lifelog</title>
-<h1>open-lifelog</h1>
-<p>Your self-hosted lifelog node.</p>
-<p>open-lifelog node — <code>{{.NodeVersion}}</code></p>
-{{if .SchemaVersions}}
-<h2>Writable types</h2>
-<table>
-  <thead><tr><th>Type</th><th>Schema version</th></tr></thead>
-  <tbody>
-  {{range .SchemaVersions}}<tr><td>{{.Type}}</td><td>{{.Version}}</td></tr>
-  {{end}}</tbody>
-</table>
-{{end}}
-{{if .Authenticated}}
-<h2>Owner tools</h2>
-<ul>
-  <li><a href="/grants">Connected apps</a> — what's accessing your lifelog right now, manage or revoke per app.</li>
-  <li><a href="/links">Capability URL builder</a> — generate scoped MCP URLs to hand to apps.</li>
-  <li><form method="post" action="/logout" style="display:inline">
-    <button type="submit" style="background:none;border:none;color:#06c;cursor:pointer;padding:0;font:inherit;text-decoration:underline">Log out</button>
-  </form></li>
-</ul>
-<h2>Endpoints</h2>
-<ul>
-  <li>MCP (all types): <code>{{.BaseURL}}/mcp</code> — for MCP clients (Claude, ChatGPT).</li>
-  <li>MCP (scoped): <code>{{.BaseURL}}/mcp/&lt;capability&gt;</code> — see the URL builder.</li>
-  <li>REST API (scoped): <code>{{.BaseURL}}/api/&lt;capability&gt;</code> — for HTTP clients; OAuth-protected, same consent + PEP. Use <code>/api/*:rw</code> for all types.</li>
-</ul>
-{{else}}
-<p><a href="/login">Log in</a> to manage app access and generate MCP capability URLs.</p>
-{{end}}`))
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>open-lifelog — your node</title>
+<link rel="stylesheet" href="/lifelog.css">
+<style>
+  /* Home hero */
+  .hero { display: grid; gap: 18px; margin-bottom: 38px; }
+  .hero__id { display: inline-flex; align-items: center; gap: 12px; }
+  .hero__id .brand__mark { inline-size: 30px; block-size: 30px; border-width: 2.5px; }
+  .hero__id .brand__mark::after { inline-size: 11px; block-size: 11px; }
+  .hero__title { font-size: clamp(2rem, 1.4rem + 3vw, 3rem); font-weight: 700; letter-spacing: -0.025em; }
+  .hero__title .brand__dot { color: var(--accent); }
+  .verline {
+    display: inline-flex; align-items: center; gap: 0; flex-wrap: wrap;
+    font-size: 0.95rem; color: var(--ink-soft);
+    border: 1px solid var(--line); background: var(--surface);
+    border-radius: 999px; padding: 6px 7px 6px 14px; width: fit-content;
+  }
+  .verline b { font-weight: 600; }
+  .verline .v { font-family: var(--mono); font-size: 0.88rem; color: var(--accent-ink);
+    background: var(--accent-wash); border: 1px solid var(--accent-line);
+    padding: 3px 9px; border-radius: 999px; margin-left: 10px; }
+
+  .tools { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  .tool {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 18px; border: 1px solid var(--line); border-radius: var(--r-lg);
+    background: var(--surface); text-decoration: none; color: inherit;
+    transition: border-color .12s, box-shadow .12s, background .12s;
+  }
+  .tool:hover { border-color: var(--accent-line); box-shadow: var(--shadow-sm); background: var(--surface); }
+  .tool__ico {
+    inline-size: 38px; block-size: 38px; border-radius: 10px; flex: none;
+    display: grid; place-items: center; background: var(--accent-wash);
+    color: var(--accent-ink); border: 1px solid var(--accent-line);
+  }
+  .tool__t { font-weight: 650; font-size: 1.02rem; display: flex; align-items: center; gap: 7px; }
+  .tool__t .arrow { color: var(--muted); transition: transform .12s; }
+  .tool:hover .tool__t .arrow { transform: translateX(3px); color: var(--accent-ink); }
+  .tool__d { font-size: 0.9rem; color: var(--ink-soft); margin-top: 3px; }
+  .tool--logout { background: var(--surface-2); }
+  .tool--logout .tool__ico { background: var(--surface); color: var(--ink-soft); border-color: var(--line-strong); }
+  .tool--logout form { margin: 0; }
+  .tool--logout button {
+    all: unset; cursor: pointer; display: flex; gap: 14px; align-items: flex-start; width: 100%;
+  }
+  .tool--logout button:focus-visible { outline: 2.5px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
+
+  .ep { display: grid; gap: 0; }
+  .ep__row { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 15px 0; border-bottom: 1px solid var(--line); }
+  .ep__row:last-child { border-bottom: 0; }
+  .ep__top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ep__name { font-weight: 600; font-size: 0.95rem; }
+  .ep__url { font-family: var(--mono); font-size: 0.9rem; color: var(--ink); word-break: break-all; }
+  .ep__url .var { color: var(--accent-ink); }
+  .ep__d { font-size: 0.86rem; color: var(--muted); }
+
+  @media (max-width: 560px) { .tools { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site">
+  <div class="site__in">
+    <a class="brand" href="/">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">open<span class="brand__dot">·</span>lifelog</span>
+    </a>
+    <nav class="site__nav" aria-label="Primary">
+      {{if .Authenticated}}
+      <a href="/grants">Connected apps</a>
+      <a href="/links">URL builder</a>
+      {{else}}
+      <a href="/login">Log in</a>
+      {{end}}
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap wrap--wide">
+
+    <section class="hero" aria-labelledby="h-title">
+      <span class="hero__id">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <span class="eyebrow">Your self-hosted lifelog node</span>
+      </span>
+      <h1 class="hero__title" id="h-title">open<span class="brand__dot">·</span>lifelog</h1>
+      <p class="lede" style="max-width: 56ch;">
+        A personal node that stores your own lifelog data — meals, sleep, weight and
+        other typed records — and lets you decide, app by app, exactly what may read or
+        write it.
+      </p>
+      <p class="verline">
+        <b>open-lifelog node</b><span aria-hidden="true">&nbsp;—</span>
+        <span class="v">{{.NodeVersion}}</span>
+      </p>
+    </section>
+
+    {{if .SchemaVersions}}
+    <section class="card" aria-labelledby="h-types" style="margin-bottom: 28px;">
+      <div class="card__hd">
+        <h2 class="h2" id="h-types">Writable types</h2>
+        <p class="muted" style="font-size:0.92rem; margin-top:4px;">
+          The record types this node can store, and the schema version it validates against.
+        </p>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead>
+            <tr><th scope="col">Type</th><th scope="col">Schema version</th></tr>
+          </thead>
+          <tbody>
+          {{range .SchemaVersions}}<tr><td><code class="mono">{{.Type}}</code></td><td class="num">{{.Version}}</td></tr>
+          {{end}}</tbody>
+        </table>
+      </div>
+    </section>
+    {{end}}
+
+    {{if .Authenticated}}
+    <div class="section-label" style="margin-top:34px;">
+      <h2 class="h2" id="h-tools">Owner tools</h2>
+    </div>
+    <section class="tools" aria-labelledby="h-tools">
+      <a class="tool" href="/grants">
+        <span class="tool__ico" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M3 12h18M3 17h18"/><circle cx="7" cy="7" r="1.4" fill="currentColor" stroke="none"/><circle cx="11" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="17" r="1.4" fill="currentColor" stroke="none"/></svg>
+        </span>
+        <span>
+          <span class="tool__t">Connected apps <span class="arrow" aria-hidden="true">→</span></span>
+          <span class="tool__d">What's accessing your lifelog right now. Manage or revoke per app.</span>
+        </span>
+      </a>
+      <a class="tool" href="/links">
+        <span class="tool__ico" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>
+        </span>
+        <span>
+          <span class="tool__t">Capability URL builder <span class="arrow" aria-hidden="true">→</span></span>
+          <span class="tool__d">Generate scoped MCP URLs to hand to apps.</span>
+        </span>
+      </a>
+      <div class="tool tool--logout">
+        <form method="post" action="/logout">
+          <button type="submit">
+            <span class="tool__ico" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+            </span>
+            <span>
+              <span class="tool__t">Log out</span>
+              <span class="tool__d">End this owner session on the node.</span>
+            </span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <div class="section-label" style="margin-top:34px;">
+      <h2 class="h2" id="h-ep">Endpoints</h2>
+    </div>
+    <section class="card" aria-labelledby="h-ep">
+      <div class="card__bd">
+        <p class="muted" style="font-size:0.92rem; margin-bottom:6px;">
+          The URLs apps connect to. All built from this node's base address.
+        </p>
+        <div class="ep">
+          <div class="ep__row">
+            <div class="ep__top">
+              <span class="ep__name">MCP — all types</span>
+              <span class="tag tag--read"><span class="tag__dot"></span>for MCP clients</span>
+            </div>
+            <div class="ep__url"><span class="var">{{.BaseURL}}</span>/mcp</div>
+            <div class="ep__d">For MCP clients such as Claude or ChatGPT.</div>
+          </div>
+          <div class="ep__row">
+            <div class="ep__top"><span class="ep__name">MCP — scoped</span></div>
+            <div class="ep__url"><span class="var">{{.BaseURL}}</span>/mcp/<span class="muted">&lt;capability&gt;</span></div>
+            <div class="ep__d">A capability-limited MCP URL. Build one in the <a href="/links">URL builder</a>.</div>
+          </div>
+          <div class="ep__row">
+            <div class="ep__top"><span class="ep__name">REST API — scoped</span></div>
+            <div class="ep__url"><span class="var">{{.BaseURL}}</span>/api/<span class="muted">&lt;capability&gt;</span></div>
+            <div class="ep__d">For HTTP clients. OAuth-protected, same consent &amp; policy. <code class="mono">/api/*:rw</code> covers all types. Build a scoped path in the <a href="/links">URL builder</a>.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    {{else}}
+    <section class="card" aria-labelledby="h-login" style="margin-top:8px;">
+      <div class="card__bd" style="display:grid; gap:14px;">
+        <h2 class="h2" id="h-login">Manage app access</h2>
+        <p class="lede" style="max-width:52ch;">
+          Log in to manage app access and generate MCP capability URLs.
+        </p>
+        <div>
+          <a class="btn btn--primary btn--lg" href="/login">Log in to your node</a>
+        </div>
+      </div>
+    </section>
+    {{end}}
+
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="site-foot__in">
+    <span class="mono">open-lifelog node — {{.NodeVersion}}</span>
+    <span aria-hidden="true">·</span>
+    <span>Self-hosted. Your data stays on this node.</span>
+  </div>
+</footer>
+</body>
+</html>`))
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
