@@ -6,8 +6,11 @@ An open, portable format for personal lifelog data.
 represent everyday personal data (meals, sleep, steps, weight, and more) as typed,
 versioned JSON records that you own and can carry between tools.
 
-> This repository is the **format specification** only. The runtime
-> (MCP server, query API, storage) lives in a separate repository.
+> This repository holds two normative specs: the **format** ([`spec/`](./spec),
+> what a record is) and the **protocol** ([`protocol/`](./protocol), how records
+> move over the network — REST/MCP, OAuth, capability scoping, consent). A
+> concrete runtime's storage and owner-authentication internals are
+> implementation details and live elsewhere.
 
 ## Design at a glance
 
@@ -44,6 +47,8 @@ Early but functional. The format specification, the v1 JSON Schemas, and a
 conformance test suite are in place.
 
 - [`spec/`](./spec) — format specification (normative)
+- [`protocol/`](./protocol) — protocol specification: REST/MCP surfaces, OAuth,
+  capability scoping, consent (normative)
 - [`schemas/`](./schemas) — per-type JSON Schemas
 - [`conformance/`](./conformance) — language-neutral accept/reject fixtures
 

@@ -11,8 +11,11 @@ between tools.
   bindings are generated mechanically from the schemas on demand, not shipped.
 - **License**: Apache-2.0 (see [`../LICENSE`](../LICENSE)).
 
-This repository is the **format specification** only. A runtime (storage,
-query, MCP server) lives in a separate repository and is out of scope here.
+This directory is the **format specification**: what a record is. The companion
+[protocol specification](../protocol/README.md) defines how records move over the
+network (authentication, capability scoping, consent, and the REST/MCP
+surfaces). A concrete runtime's storage and owner-authentication internals are
+implementation details, out of scope for both.
 
 ## Conformance language
 
