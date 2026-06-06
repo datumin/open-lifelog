@@ -24,11 +24,6 @@ import (
 	"open-lifelog.org/node/internal/write"
 )
 
-// currentOLFVersion is the version the node stamps on records written through
-// this surface when the caller does not specify one. It tracks the current spec
-// version (single source: the spec / schemas).
-const currentOLFVersion = "1.0"
-
 // linkCtxKey is how the surrounding HTTP handler tells getServer which link the
 // request is for; the all-tools Handler() leaves it unset, per-link handlers set it.
 type linkCtxKey struct{}
@@ -50,6 +45,7 @@ type Server struct {
 	grants     *pep.Store
 	types      []string
 	payloadRaw map[string]json.RawMessage
+	versions   map[string]string // type -> latest schema version, for default stamp
 	scopes     map[string]string // tool name -> required scope (across all types)
 }
 
@@ -66,9 +62,13 @@ func New(q *query.Engine, w *write.Service, v *validate.Validator, grants *pep.S
 		payloadRaw: map[string]json.RawMessage{},
 		scopes:     map[string]string{},
 	}
+	s.versions = map[string]string{}
 	for _, typ := range s.types {
 		ps, _ := v.RawPayloadSchema(typ)
 		s.payloadRaw[typ] = ps
+		if ver, ok := v.LatestVersion(typ); ok {
+			s.versions[typ] = ver
+		}
 		// Pre-compute scope strings so RequiredScope() works without building a server.
 		s.scopes[typ+"_record"] = "lifelog:write:" + typ
 		s.scopes[typ+"_update"] = "lifelog:write:" + typ
@@ -232,7 +232,7 @@ func (s *Server) handleRecord(typ string) mcp.ToolHandler {
 			return errCodeResult(wire.CodeBadRequest, err.Error()), nil
 		}
 		rec, err := s.w.Record(write.RecordInput{
-			Type: typ, OLFVersion: version(a.OLFVersion),
+			Type: typ, OLFVersion: s.version(typ, a.OLFVersion),
 			OccurredAt: a.OccurredAt, TZ: a.TZ, Source: a.Source, Payload: a.Payload,
 		})
 		if err != nil {
@@ -252,7 +252,7 @@ func (s *Server) handleUpdate(typ string) mcp.ToolHandler {
 			return errCodeResult(wire.CodeBadRequest, err.Error()), nil
 		}
 		rec, err := s.w.Update(write.UpdateInput{
-			Type: typ, ID: a.ID, OLFVersion: version(a.OLFVersion),
+			Type: typ, ID: a.ID, OLFVersion: s.version(typ, a.OLFVersion),
 			OccurredAt: a.OccurredAt, TZ: a.TZ, Source: a.Source, Payload: a.Payload,
 		})
 		if err != nil {
@@ -357,11 +357,13 @@ func (s *Server) handleList(typ string) mcp.ToolHandler {
 
 // --- helpers ---
 
-func version(v string) string {
-	if v == "" {
-		return currentOLFVersion
+// version returns the olf_version to stamp: the caller's if given, else the
+// type's latest schema version (per spec, olf_version is per-type).
+func (s *Server) version(typ, v string) string {
+	if v != "" {
+		return v
 	}
-	return v
+	return s.versions[typ]
 }
 
 func optionalInstant(s string) (*time.Time, error) {
