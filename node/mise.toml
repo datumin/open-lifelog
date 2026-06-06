@@ -1,0 +1,44 @@
+[tools]
+go = "1.26.3"
+
+# The canonical JSON Schemas live at ../schemas (repo root), outside this Go
+# module, so go:embed (which can only embed within the module) cannot reach them
+# directly. sync-schemas copies them in; the copies under internal/validate/schemas
+# are a derived build artifact (gitignored) — ../schemas stays the single source.
+[tasks.sync-schemas]
+description = "Copy canonical JSON Schemas from ../schemas into the module for go:embed"
+run = '''
+rm -rf internal/validate/schemas
+mkdir -p internal/validate/schemas
+cp -R ../schemas/. internal/validate/schemas/
+'''
+
+[tasks.test]
+description = "Run the Go test suite"
+depends = ["sync-schemas"]
+run = "go test ./... -count=1"
+
+[tasks.vet]
+description = "Run go vet"
+depends = ["sync-schemas"]
+run = "go vet ./..."
+
+# Produces a runnable static binary at ./olf (and compile-checks every package).
+[tasks.build]
+description = "olf バイナリをビルド(./olf、CGO 不要・静的)。全パッケージのコンパイルも検査"
+depends = ["sync-schemas"]
+env = { CGO_ENABLED = "0" }
+run = ["go build ./...", "go build -o ./olf ./cmd/olf"]
+
+# Dev convenience. Extra args after `--` are forwarded to the program, e.g.
+#   mise run serve -- --data ./dev-data --base-url https://example.com
+#   mise run token -- --cap 'meal:rw' --data ./dev-data
+[tasks.serve]
+description = "ノードを起動(MCP/REST/OAuth/owner UI)。引数はそのまま olf serve に渡る"
+depends = ["sync-schemas"]
+run = "go run ./cmd/olf serve"
+
+[tasks.token]
+description = "owner トークンを発行(ブラウザ不要)。引数はそのまま olf token に渡る"
+depends = ["sync-schemas"]
+run = "go run ./cmd/olf token"

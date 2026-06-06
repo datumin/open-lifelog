@@ -1,0 +1,247 @@
+// Package owner authenticates the node's single resource owner — the person who
+// approves consent. v1 uses a generated secret (not WebAuthn passkeys; see
+// runtime design §8.2, decision 2026-06-04): on first run the node mints a
+// high-entropy owner secret, prints it once, and stores only its hash. The owner
+// logs in with that secret to obtain a browser session that gates /authorize.
+//
+// Because the secret is high-entropy and node-generated (not a human-chosen
+// password), a plain SHA-256 is a sufficient at-rest hash — there is no
+// low-entropy guessing surface to slow down.
+package owner
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"html/template"
+	"net/http"
+	"time"
+
+	"open-lifelog.org/node/internal/meta"
+)
+
+const sessionCookie = "olf_owner_session"
+
+// ErrBadSecret is returned when a login secret does not match.
+var ErrBadSecret = errors.New("invalid owner secret")
+
+// Service handles owner bootstrap, login, and session checks.
+type Service struct {
+	db         *sql.DB
+	now        func() time.Time
+	sessionTTL time.Duration
+}
+
+func New(store *meta.Store) *Service {
+	return &Service{db: store.DB(), now: time.Now, sessionTTL: 12 * time.Hour}
+}
+
+// EnsureSecret generates and stores the owner secret on first run. It returns
+// the plaintext secret and created=true only when it had to create one (so the
+// caller can print it exactly once); on subsequent runs it returns created=false.
+func (s *Service) EnsureSecret() (secret string, created bool, err error) {
+	var exists int
+	if err = s.db.QueryRow(`SELECT COUNT(*) FROM owner_secret`).Scan(&exists); err != nil {
+		return "", false, err
+	}
+	if exists > 0 {
+		return "", false, nil
+	}
+	secret = randomToken()
+	if _, err = s.db.Exec(
+		`INSERT INTO owner_secret (id, secret_hash, created_at) VALUES (1, ?, ?)`,
+		hash(secret), s.now().UTC().Format(time.RFC3339),
+	); err != nil {
+		return "", false, err
+	}
+	return secret, true, nil
+}
+
+// RotateSecret replaces the stored owner secret with a freshly generated one and
+// returns the new plaintext (to print once). The old secret cannot be recovered
+// — only its hash was ever stored — so rotation is the way to recover from a lost
+// or compromised secret. All existing owner browser sessions are invalidated so
+// the old secret cannot keep a session alive. Idempotent on a fresh DB (acts as
+// first-time generation). Atomic via a transaction.
+func (s *Service) RotateSecret() (string, error) {
+	secret := randomToken()
+	now := s.now().UTC().Format(time.RFC3339)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM owner_secret`); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO owner_secret (id, secret_hash, created_at) VALUES (1, ?, ?)`, hash(secret), now,
+	); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(`DELETE FROM owner_sessions`); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return secret, nil
+}
+
+// VerifySecret reports nil if secret matches the stored owner secret. It is the
+// non-HTTP path the CLI uses to authorize owner-only operations (e.g. minting a
+// personal access token), with the same constant-time check login() relies on.
+func (s *Service) VerifySecret(secret string) error {
+	var stored string
+	if err := s.db.QueryRow(`SELECT secret_hash FROM owner_secret WHERE id=1`).Scan(&stored); err != nil {
+		return ErrBadSecret
+	}
+	if subtle.ConstantTimeCompare([]byte(hash(secret)), []byte(stored)) != 1 {
+		return ErrBadSecret
+	}
+	return nil
+}
+
+// login verifies the secret and, on success, creates a session and returns its
+// token.
+func (s *Service) login(secret string) (string, error) {
+	if err := s.VerifySecret(secret); err != nil {
+		return "", err
+	}
+	token := randomToken()
+	now := s.now().UTC()
+	if _, err := s.db.Exec(
+		`INSERT INTO owner_sessions (session_hash, csrf_token, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+		hash(token), randomToken(), now.Add(s.sessionTTL).Format(time.RFC3339), now.Format(time.RFC3339),
+	); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// CSRFToken returns the per-session CSRF token for the request's owner session,
+// or "" if there is no valid session. Embed it as a hidden field in any
+// owner-driven POST form; verify with ValidateCSRF.
+func (s *Service) CSRFToken(r *http.Request) string {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return ""
+	}
+	var csrf, expiresAt string
+	if err := s.db.QueryRow(
+		`SELECT csrf_token, expires_at FROM owner_sessions WHERE session_hash=?`, hash(c.Value),
+	).Scan(&csrf, &expiresAt); err != nil {
+		return ""
+	}
+	if exp, err := time.Parse(time.RFC3339, expiresAt); err != nil || s.now().After(exp) {
+		return ""
+	}
+	return csrf
+}
+
+// ValidateCSRF reports whether token matches the session's CSRF token
+// (constant-time). A missing session or empty token fails closed.
+func (s *Service) ValidateCSRF(r *http.Request, token string) bool {
+	want := s.CSRFToken(r)
+	return want != "" && token != "" && subtle.ConstantTimeCompare([]byte(want), []byte(token)) == 1
+}
+
+// Authenticated reports whether the request carries a valid, unexpired owner
+// session. It satisfies the interface oauth uses to gate /authorize.
+func (s *Service) Authenticated(r *http.Request) bool {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return false
+	}
+	var expiresAt string
+	if err := s.db.QueryRow(
+		`SELECT expires_at FROM owner_sessions WHERE session_hash=?`, hash(c.Value),
+	).Scan(&expiresAt); err != nil {
+		return false
+	}
+	exp, err := time.Parse(time.RFC3339, expiresAt)
+	return err == nil && !s.now().After(exp)
+}
+
+// Register mounts the login/logout endpoints.
+func (s *Service) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /login", s.loginForm)
+	mux.HandleFunc("POST /login", s.loginSubmit)
+	mux.HandleFunc("POST /logout", s.logout)
+}
+
+var loginTmpl = template.Must(template.New("login").Parse(`<!doctype html>
+<title>open-lifelog — owner login</title>
+<h1>Owner login</h1>
+{{if .Error}}<p style="color:red">{{.Error}}</p>{{end}}
+<form method="post" action="/login">
+  <input type="hidden" name="return" value="{{.Return}}">
+  <label>Owner secret: <input type="password" name="secret" autofocus></label>
+  <button type="submit">Log in</button>
+</form>`))
+
+func (s *Service) loginForm(w http.ResponseWriter, r *http.Request) {
+	renderLogin(w, safeReturn(r.URL.Query().Get("return")), "")
+}
+
+func (s *Service) loginSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	ret := safeReturn(r.PostForm.Get("return"))
+	token, err := s.login(r.PostForm.Get("secret"))
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		renderLogin(w, ret, "Incorrect secret.")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  s.now().Add(s.sessionTTL),
+	})
+	http.Redirect(w, r, ret, http.StatusFound)
+}
+
+func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		_, _ = s.db.Exec(`DELETE FROM owner_sessions WHERE session_hash=?`, hash(c.Value))
+	}
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1})
+	http.Redirect(w, r, "/login", http.StatusFound)
+}
+
+func renderLogin(w http.ResponseWriter, ret, errMsg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = loginTmpl.Execute(w, map[string]string{"Return": ret, "Error": errMsg})
+}
+
+// safeReturn keeps post-login redirects local (no open redirect): only a path
+// beginning with a single "/" is allowed, else fall back to "/".
+func safeReturn(ret string) string {
+	if len(ret) == 0 || ret[0] != '/' || (len(ret) > 1 && ret[1] == '/') {
+		return "/"
+	}
+	return ret
+}
+
+func randomToken() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("owner: out of randomness: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+func hash(t string) string {
+	sum := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(sum[:])
+}

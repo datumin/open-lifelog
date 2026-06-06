@@ -1,0 +1,9 @@
+# Derived build artifacts (canonical source is ../schemas, copied by `mise run sync-schemas`)
+/internal/validate/schemas/
+
+# Built binary (`mise run build`)
+/olf
+
+# Local dev/runtime data dir: the JSONL lifelog plus meta.db (owner secret hash,
+# OAuth token hashes, grant ledger). Runtime state — never commit.
+/dev-data/
