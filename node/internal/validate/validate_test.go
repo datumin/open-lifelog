@@ -103,6 +103,38 @@ func rec(typ, olfVersion, occurredAt, payload string) olf.Record {
 	}
 }
 
+func TestSchemaVersions(t *testing.T) {
+	v, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, tv := range v.SchemaVersions() {
+		got[tv.Type] = tv.Version
+	}
+	for _, typ := range []string{"meal", "sleep", "steps", "weight"} {
+		if got[typ] != "1.0" {
+			t.Errorf("SchemaVersions()[%q] = %q, want %q", typ, got[typ], "1.0")
+		}
+	}
+	if _, ok := got["envelope"]; ok {
+		t.Errorf("SchemaVersions() should not include envelope")
+	}
+}
+
+func TestLatestVersion(t *testing.T) {
+	v, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ver, ok := v.LatestVersion("meal"); !ok || ver != "1.0" {
+		t.Errorf("LatestVersion(meal) = %q,%v want 1.0,true", ver, ok)
+	}
+	if ver, ok := v.LatestVersion("nope"); ok || ver != "" {
+		t.Errorf("LatestVersion(nope) = %q,%v want \"\",false", ver, ok)
+	}
+}
+
 func TestValidateFullRecord_OK(t *testing.T) {
 	v := newValidator(t)
 	r := rec("weight", "1.0", "2026-05-28T07:05:00+09:00", `{"weight_kg":70.5}`)

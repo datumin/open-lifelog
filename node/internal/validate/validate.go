@@ -38,6 +38,9 @@ type Validator struct {
 	// payloadRaw is the raw JSON Schema for each type's latest major, used by
 	// surfaces (e.g. MCP) that need to advertise the payload shape.
 	payloadRaw map[string]json.RawMessage
+	// versions maps each type to the major.minor version declared in its latest
+	// schema's $id (e.g. "meal" -> "1.0"). Derived once at New().
+	versions map[string]string
 }
 
 // New compiles the embedded schemas. Format assertions are enabled so that
@@ -55,6 +58,7 @@ func New() (*Validator, error) {
 	v := &Validator{
 		payload:    map[string]*jsonschema.Schema{},
 		payloadRaw: map[string]json.RawMessage{},
+		versions:   map[string]string{},
 	}
 
 	// Add every schema as a resource first (so any future cross-references
@@ -99,6 +103,23 @@ func New() (*Validator, error) {
 	}
 	if v.envelope == nil {
 		return nil, fmt.Errorf("envelope schema not found among embedded schemas")
+	}
+
+	// Derive each type's version from its latest schema's $id
+	// (e.g. ".../schemas/meal/1.0" -> "1.0"). The $id is the canonical version
+	// label for the file; a missing/blank $id is a broken schema — fail closed.
+	for typ, raw := range v.payloadRaw {
+		var head struct {
+			ID string `json:"$id"`
+		}
+		if err := json.Unmarshal(raw, &head); err != nil {
+			return nil, fmt.Errorf("parse $id for %q: %w", typ, err)
+		}
+		ver := path.Base(head.ID)
+		if head.ID == "" || ver == "." || ver == "/" {
+			return nil, fmt.Errorf("schema for %q has no usable $id version", typ)
+		}
+		v.versions[typ] = ver
 	}
 	return v, nil
 }
@@ -150,6 +171,30 @@ func (v *Validator) PayloadTypes() []string {
 	}
 	sort.Strings(types)
 	return types
+}
+
+// TypeVersion pairs a payload type with its latest schema version (major.minor).
+type TypeVersion struct {
+	Type    string
+	Version string
+}
+
+// SchemaVersions returns each payload type and its latest schema version,
+// sorted by type. Surfaces use this to display what the node can write.
+func (v *Validator) SchemaVersions() []TypeVersion {
+	out := make([]TypeVersion, 0, len(v.versions))
+	for typ, ver := range v.versions {
+		out = append(out, TypeVersion{Type: typ, Version: ver})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Type < out[j].Type })
+	return out
+}
+
+// LatestVersion returns the latest schema version for typ and whether typ is
+// known. Used to stamp olf_version on writes that omit it.
+func (v *Validator) LatestVersion(typ string) (string, bool) {
+	ver, ok := v.versions[typ]
+	return ver, ok
 }
 
 // RawPayloadSchema returns the raw JSON Schema for the type's latest major, and
