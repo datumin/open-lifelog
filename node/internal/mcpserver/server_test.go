@@ -358,6 +358,38 @@ func TestErrorCodes_MatchRESTAcrossConditions(t *testing.T) {
 	}
 }
 
+// A record that omits olf_version is stamped with the type's latest schema
+// version (per spec, olf_version is per-type) — here meal's 1.0. Mirrors the
+// REST surface's TestCreateStampsTypeVersionWhenOmitted.
+func TestRecordStampsTypeVersionWhenOmitted(t *testing.T) {
+	grants := newGrants(t)
+	if err := grants.Create(pep.Grant{ID: "gm", ClientID: "C", Operation: "write", Types: []string{"meal"}, Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	cs := connectHTTP(t, "C", grants)
+	res := callTool(t, cs, "meal_record", map[string]any{
+		"occurred_at": "2026-05-28T07:00:00+09:00", "source": "app",
+		"payload": map[string]any{"raw_input": "a sandwich"},
+	})
+	if res.IsError {
+		t.Fatalf("expected allowed record, got error result")
+	}
+	// The success envelope's structured content is {data, meta}; data is the
+	// persisted record carrying the stamped olf_version.
+	b, _ := json.Marshal(res.StructuredContent)
+	var env struct {
+		Data struct {
+			OLFVersion string `json:"olf_version"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(b, &env); err != nil {
+		t.Fatalf("decode envelope: %v (%s)", err, b)
+	}
+	if env.Data.OLFVersion != "1.0" {
+		t.Errorf("omitted olf_version should stamp meal's latest (1.0), got %q", env.Data.OLFVersion)
+	}
+}
+
 func TestEnforce_InvalidPayloadStillRejected(t *testing.T) {
 	grants := newGrants(t)
 	if err := grants.Create(pep.Grant{ID: "gw", ClientID: "C", Operation: "write", Types: []string{"weight"}, Status: "active"}); err != nil {
