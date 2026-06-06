@@ -1,5 +1,6 @@
 [tools]
 uv = "latest"
+goreleaser = "latest"
 
 [settings]
 lockfile = true
@@ -36,3 +37,7 @@ run = "uv run ty check"
 [tasks.lint]
 description = "Lint Python"
 run = "uv run ruff check ."
+
+[tasks.release-snapshot]
+description = "GoReleaser をローカル乾式実行(タグ不要・公開なし)。dist/ に成果物を生成"
+run = "goreleaser release --snapshot --clean"
