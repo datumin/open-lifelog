@@ -135,6 +135,21 @@ func TestLatestVersion(t *testing.T) {
 	}
 }
 
+func TestVersionShapeGuard(t *testing.T) {
+	good := []string{"1.0", "2.3", "10.0"}
+	bad := []string{"", "meal", "1.0?v=2", "1.0#frag", "v1.0", "1", "1.0.0"}
+	for _, s := range good {
+		if !versionRe.MatchString(s) {
+			t.Errorf("versionRe rejected good version %q", s)
+		}
+	}
+	for _, s := range bad {
+		if versionRe.MatchString(s) {
+			t.Errorf("versionRe accepted bad version %q", s)
+		}
+	}
+}
+
 func TestValidateFullRecord_OK(t *testing.T) {
 	v := newValidator(t)
 	r := rec("weight", "1.0", "2026-05-28T07:05:00+09:00", `{"weight_kg":70.5}`)

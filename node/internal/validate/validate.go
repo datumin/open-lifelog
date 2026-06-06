@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +30,9 @@ import (
 
 //go:embed schemas
 var schemaFS embed.FS
+
+// versionRe matches the major.minor version label in a schema $id (e.g. "1.0").
+var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 
 // Validator holds the compiled envelope schema and the per-type payload schemas,
 // keyed by "<type>/<major>" (e.g. "weight/1"). It is safe for concurrent use.
@@ -115,9 +119,12 @@ func New() (*Validator, error) {
 		if err := json.Unmarshal(raw, &head); err != nil {
 			return nil, fmt.Errorf("parse $id for %q: %w", typ, err)
 		}
+		if head.ID == "" {
+			return nil, fmt.Errorf("schema for %q has no $id", typ)
+		}
 		ver := path.Base(head.ID)
-		if head.ID == "" || ver == "." || ver == "/" {
-			return nil, fmt.Errorf("schema for %q has no usable $id version", typ)
+		if !versionRe.MatchString(ver) {
+			return nil, fmt.Errorf("schema for %q has malformed $id version %q (want major.minor)", typ, ver)
 		}
 		v.versions[typ] = ver
 	}
