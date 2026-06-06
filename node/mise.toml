@@ -28,7 +28,10 @@ run = "go vet ./..."
 description = "olf バイナリをビルド(./olf、CGO 不要・静的)。全パッケージのコンパイルも検査"
 depends = ["sync-schemas"]
 env = { CGO_ENABLED = "0" }
-run = ["go build ./...", "go build -o ./olf ./cmd/olf"]
+run = [
+  "go build ./...",
+  "go build -ldflags \"-X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o ./olf ./cmd/olf",
+]
 
 # Dev convenience. Extra args after `--` are forwarded to the program, e.g.
 #   mise run serve -- --data ./dev-data --base-url https://example.com

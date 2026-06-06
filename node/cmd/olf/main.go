@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 	_ "time/tzdata" // embed the IANA tz database so --tz works without system zoneinfo
@@ -29,6 +30,50 @@ import (
 	"open-lifelog.org/node/internal/validate"
 	"open-lifelog.org/node/internal/write"
 )
+
+// version is the node build version. Overridden at build time via
+//   -ldflags "-X main.version=<tag>"
+// and falls back to VCS build info (see nodeVersion).
+var version = "dev"
+
+// nodeVersion resolves the version string shown in the owner UI: the injected
+// build version if set, else "dev (<short-rev>[, dirty])" from VCS build info.
+func nodeVersion() string {
+	if version != "dev" {
+		return version
+	}
+	var rev string
+	var dirty bool
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.modified":
+				dirty = s.Value == "true"
+			}
+		}
+	}
+	return formatVersion(version, rev, dirty)
+}
+
+// formatVersion is the pure formatting half of nodeVersion (unit-tested).
+func formatVersion(injected, rev string, dirty bool) string {
+	if injected != "dev" {
+		return injected
+	}
+	if rev == "" {
+		return injected
+	}
+	short := rev
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	if dirty {
+		return "dev (" + short + ", dirty)"
+	}
+	return "dev (" + short + ")"
+}
 
 func main() {
 	if len(os.Args) < 2 {
