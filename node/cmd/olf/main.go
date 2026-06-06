@@ -96,7 +96,7 @@ func serve(args []string) {
 	adapter := linkAdapter{types: types}
 	authz := oauth.New(metaStore, *baseURL, own, grants, adapter, types, loc)
 	mcps := mcpserver.New(q, w, v, grants)
-	api := restapi.New(q, w, grants, types)
+	api := restapi.New(q, w, v, grants, types)
 
 	// One HTTP server hosts both external surfaces over the same core, each an
 	// OAuth-protected resource with identical three-stage scoping (capability

@@ -97,7 +97,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { mstore.Close() })
 	grants := pep.New(mstore)
-	return &fixture{api: New(q, w, grants, knownTypes), grants: grants, w: w}
+	return &fixture{api: New(q, w, v, grants, knownTypes), grants: grants, w: w}
 }
 
 // grant gives clientID the listed scopes (e.g. "lifelog:read:weight"). Grant
@@ -283,6 +283,22 @@ func TestCreate_RoundTrips(t *testing.T) {
 	}
 	if rec.OLFVersion != "1.0" {
 		t.Errorf("olf_version should default to 1.0, got %q", rec.OLFVersion)
+	}
+}
+
+// A create that omits olf_version is stamped with the type's latest schema
+// version (per spec, olf_version is per-type) — here meal's 1.0.
+func TestCreateStampsTypeVersionWhenOmitted(t *testing.T) {
+	f := newFixture(t)
+	f.grant(t, "writer", "lifelog:write:meal")
+	rr := f.call(t, f.api.Create, "POST", "/api/meal:w/records/meal", "writer", "meal:w",
+		`{"occurred_at":"2026-05-28T07:00:00+09:00","source":"app","payload":{"raw_input":"a sandwich"}}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: got %d, want 201 (%s)", rr.Code, rr.Body)
+	}
+	rec, _ := recordData(t, rr.Body.Bytes())
+	if rec.OLFVersion != "1.0" {
+		t.Errorf("omitted olf_version should stamp meal's latest (1.0), got %q", rec.OLFVersion)
 	}
 }
 

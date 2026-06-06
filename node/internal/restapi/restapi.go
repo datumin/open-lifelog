@@ -30,13 +30,10 @@ import (
 	"open-lifelog.org/node/internal/olf"
 	"open-lifelog.org/node/internal/pep"
 	"open-lifelog.org/node/internal/query"
+	"open-lifelog.org/node/internal/validate"
 	"open-lifelog.org/node/internal/wire"
 	"open-lifelog.org/node/internal/write"
 )
-
-// currentOLFVersion is stamped on records written through this surface when the
-// caller does not supply one (mirrors mcpserver; single source is the spec).
-const currentOLFVersion = "1.0"
 
 // linkCtxKey is how the surrounding handler tells a request which capability it
 // is scoped to. The un-scoped /api endpoint leaves it unset (nil link).
@@ -55,18 +52,23 @@ func linkFromCtx(ctx context.Context) *links.Link {
 
 // API wires the REST routes to the core read/write services and the grant ledger.
 type API struct {
-	q      *query.Engine
-	w      *write.Service
-	grants *pep.Store
-	known  map[string]bool // the types the node serves; bounds read & write
+	q        *query.Engine
+	w        *write.Service
+	grants   *pep.Store
+	known    map[string]bool   // the types the node serves; bounds read & write
+	versions map[string]string // type -> latest schema version, for default stamp
 }
 
-func New(q *query.Engine, w *write.Service, grants *pep.Store, types []string) *API {
+func New(q *query.Engine, w *write.Service, v *validate.Validator, grants *pep.Store, types []string) *API {
 	known := make(map[string]bool, len(types))
+	versions := make(map[string]string, len(types))
 	for _, t := range types {
 		known[t] = true
+		if ver, ok := v.LatestVersion(t); ok {
+			versions[t] = ver
+		}
 	}
-	return &API{q: q, w: w, grants: grants, known: known}
+	return &API{q: q, w: w, grants: grants, known: known, versions: versions}
 }
 
 // JSONErrors normalizes the REST surface's error responses to the node's JSON
@@ -290,7 +292,7 @@ func (a *API) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	rec, err := a.w.Record(write.RecordInput{
 		Type:       typ,
-		OLFVersion: version(body.OLFVersion),
+		OLFVersion: a.version(typ, body.OLFVersion),
 		OccurredAt: body.OccurredAt,
 		TZ:         body.TZ,
 		Source:     body.Source,
@@ -316,7 +318,7 @@ func (a *API) Update(w http.ResponseWriter, r *http.Request) {
 	rec, err := a.w.Update(write.UpdateInput{
 		Type:       typ,
 		ID:         r.PathValue("id"),
-		OLFVersion: version(body.OLFVersion),
+		OLFVersion: a.version(typ, body.OLFVersion),
 		OccurredAt: body.OccurredAt,
 		TZ:         body.TZ,
 		Source:     body.Source,
@@ -371,11 +373,13 @@ func (a *API) Delete(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---
 
-func version(v string) string {
-	if v == "" {
-		return currentOLFVersion
+// version returns the olf_version to stamp: the caller's if given, else the
+// type's latest schema version (per spec, olf_version is per-type).
+func (a *API) version(typ, v string) string {
+	if v != "" {
+		return v
 	}
-	return v
+	return a.versions[typ]
 }
 
 // optionalInstant parses an empty string as "unbounded" (nil) or an
