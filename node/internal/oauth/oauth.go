@@ -78,7 +78,7 @@ type Server struct {
 	owner          OwnerAuth
 	grants         *pep.Store
 	links          Links
-	types          []string // standard payload types, to expand wildcard scopes
+	types          []string       // standard payload types, to expand wildcard scopes
 	loc            *time.Location // node timezone; defines the read window's calendar-day boundaries
 	now            func() time.Time
 	codeTTL        time.Duration

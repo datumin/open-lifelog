@@ -32,7 +32,9 @@ import (
 )
 
 // version is the node build version. Overridden at build time via
-//   -ldflags "-X main.version=<tag>"
+//
+//	-ldflags "-X main.version=<tag>"
+//
 // and falls back to VCS build info (see nodeVersion).
 var version = "dev"
 
