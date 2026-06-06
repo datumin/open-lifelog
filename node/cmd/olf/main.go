@@ -89,6 +89,8 @@ func main() {
 		tokenCmd(os.Args[2:])
 	case "secret":
 		secretCmd(os.Args[2:])
+	case "version":
+		fmt.Println(nodeVersion())
 	default:
 		usage()
 		os.Exit(2)
@@ -100,6 +102,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  olf serve  [--addr host:port] [--data dir] [--base-url url]")
 	fmt.Fprintln(os.Stderr, "  olf token  [--data dir] [--base-url url] [--cap cap] [--surface api|mcp] [--name label] [--ttl dur]")
 	fmt.Fprintln(os.Stderr, "  olf secret rotate [--data dir]")
+	fmt.Fprintln(os.Stderr, "  olf version")
 }
 
 func serve(args []string) {
