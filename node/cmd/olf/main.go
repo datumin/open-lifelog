@@ -132,7 +132,7 @@ func serve(args []string) {
 	}
 	defer metaStore.Close()
 
-	own := owner.New(metaStore)
+	own := owner.New(metaStore, nodeVersion())
 	if secret, created, err := own.EnsureSecret(); err != nil {
 		log.Fatalf("owner bootstrap: %v", err)
 	} else if created {
@@ -275,7 +275,7 @@ func tokenCmd(args []string) {
 	}
 	defer metaStore.Close()
 
-	own := owner.New(metaStore)
+	own := owner.New(metaStore, nodeVersion())
 	grants := pep.New(metaStore)
 	types := v.PayloadTypes()
 	// The token command issues/preserves grants but never parses window dates, so
@@ -313,7 +313,7 @@ func secretCmd(args []string) {
 	}
 	defer metaStore.Close()
 
-	secret, err := owner.New(metaStore).RotateSecret()
+	secret, err := owner.New(metaStore, "").RotateSecret()
 	if err != nil {
 		log.Fatalf("rotate owner secret: %v", err)
 	}

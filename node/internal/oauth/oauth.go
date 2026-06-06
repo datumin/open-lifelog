@@ -346,7 +346,7 @@ func (s *Server) authorizeForm(w http.ResponseWriter, r *http.Request) {
 	// unchanged Approve preserves it rather than silently widening to unbounded.
 	existing, _ := s.grants.ReadWindowFor(req.clientID)
 	from, to := windowDates(existing, s.loc)
-	renderConsent(w, req, perms, offline, s.owner.CSRFToken(r), from, to, s.loc.String())
+	renderConsent(w, req, perms, offline, s.owner.CSRFToken(r), from, to, s.loc.String(), s.nodeVersion)
 }
 
 // permView is one selectable permission on the consent screen.
@@ -501,61 +501,241 @@ func (s *Server) authorizeDecision(w http.ResponseWriter, r *http.Request) {
 }
 
 var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
-<title>open-lifelog — authorize</title>
-<h1>Authorize access</h1>
-<p>The app <strong>{{.ClientName}}</strong> wants access to your lifelog.
-   Choose exactly what to share — uncheck anything you don't want to grant.</p>
-<form method="post" action="/authorize">
-  <input type="hidden" name="client_id" value="{{.ClientID}}">
-  <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
-  <input type="hidden" name="response_type" value="code">
-  <input type="hidden" name="scope" value="{{.Scope}}">
-  <input type="hidden" name="resource" value="{{.Resource}}">
-  <input type="hidden" name="state" value="{{.State}}">
-  <input type="hidden" name="code_challenge" value="{{.Challenge}}">
-  <input type="hidden" name="code_challenge_method" value="S256">
-  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  <fieldset>
-    <legend>Read</legend>
-    {{range .Perms}}{{if eq .Op "read"}}
-    <label><input type="checkbox" name="grant" value="{{.Scope}}" checked> {{.Type}}</label><br>
-    {{end}}{{end}}
-  </fieldset>
-  <fieldset>
-    <legend>Write</legend>
-    {{range .Perms}}{{if eq .Op "write"}}
-    <label><input type="checkbox" name="grant" value="{{.Scope}}" checked> {{.Type}}</label><br>
-    {{end}}{{end}}
-  </fieldset>
-  <fieldset>
-    <legend>Data window (optional)</legend>
-    <p style="color:#555">Limit which data this app can read, by when it occurred.
-       Leave a field blank for no limit. Dates are calendar days in this node's timezone
-       (<strong>{{.TZName}}</strong>) and apply to reads only.</p>
-    <label>From <input type="date" name="data_from" value="{{.DataFrom}}"></label>
-    <label>To <input type="date" name="data_to" value="{{.DataTo}}"></label>
-  </fieldset>
-  <p style="color:#555">You can revoke any of this at any time from the grants page.</p>
-  <button type="submit" name="action" value="approve">Approve selected</button>
-  <button type="submit" name="action" value="deny">Deny</button>
-</form>`))
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize app — open-lifelog</title>
+<link rel="stylesheet" href="/lifelog.css">
+<style>
+  .consent { max-width: 640px; margin-inline: auto; }
+  .applead { display: grid; gap: 16px; text-align: center; margin-bottom: 26px; }
+  .appavatar {
+    inline-size: 56px; block-size: 56px; border-radius: 15px; margin: 0 auto;
+    display: grid; place-items: center; font-weight: 700; font-size: 1.5rem;
+    color: var(--accent-ink); background: var(--accent-wash); border: 1px solid var(--accent-line);
+  }
+  .applead h1 { font-size: clamp(1.4rem, 1.1rem + 1.4vw, 1.8rem); font-weight: 660; }
+  .applead h1 .app { color: var(--accent-ink); }
+  .appredirect {
+    font-size: 0.85rem; color: var(--muted);
+    display: inline-flex; gap: 7px; align-items: center; justify-content: center; flex-wrap: wrap;
+  }
+  .appredirect .host { font-family: var(--mono); color: var(--ink-soft); }
+  .grouplead { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 10px; }
+  .grouplead h2 { font-size: 0.96rem; font-weight: 650; }
+  .selall { font-size: 0.84rem; }
+  .actbar {
+    position: sticky; bottom: 0; margin-top: 26px;
+    background: oklch(1 0 0 / 0.92); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line); padding: 16px 0; display: grid; gap: 12px;
+  }
+  .actbar__btns { display: flex; gap: 12px; }
+  .actbar__btns .btn { flex: 1; }
+  .actbar .btn--primary { flex: 1.4; }
+  .reassure { justify-content: center; text-align: center; }
+  @media (max-width: 480px) {
+    .actbar__btns { flex-direction: column-reverse; }
+    .actbar .btn--primary, .actbar .btn--danger { flex: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
 
-func renderConsent(w http.ResponseWriter, req authRequest, perms []permView, offline bool, csrf, dataFrom, dataTo, tzName string) {
+<header class="site">
+  <div class="site__in">
+    <a class="brand" href="/">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">open<span class="brand__dot">·</span>lifelog</span>
+    </a>
+    <nav class="site__nav" aria-label="Primary">
+      <span class="muted" style="font-size:0.85rem; padding:8px 4px;">Authorizing a new app</span>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <div class="consent">
+
+      <div class="applead">
+        <div class="appavatar" aria-hidden="true">{{.ClientInitial}}</div>
+        <h1>The app <span class="app">{{.ClientName}}</span><br>wants access to your lifelog.</h1>
+        <p class="appredirect">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Will return you to <span class="host">{{.RedirectHost}}</span>
+        </p>
+      </div>
+
+      <form method="post" action="/authorize">
+
+        {{if .ReadPerms}}
+        <div class="grouplead">
+          <h2 id="lg-read">Read access</h2>
+          <span class="muted selall">Uncheck anything you don't want to share</span>
+        </div>
+        <fieldset class="permgroup permgroup--read">
+          <legend class="vh">Read access — choose which records this app may read</legend>
+          <div class="permgroup__hd">
+            <span class="permgroup__icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3"/></svg>
+            </span>
+            <span>
+              <span class="permgroup__title">Read your data</span>
+              <span class="permgroup__sub">The app can see these records.</span>
+            </span>
+          </div>
+          {{range .ReadPerms}}
+          <label class="perm">
+            <input class="perm__box" type="checkbox" name="grant" value="{{.Scope}}" checked>
+            <span class="perm__label">{{.Type}}</span> <span class="perm__type">{{.Type}}</span>
+            <span class="perm__meta">read</span>
+          </label>
+          {{end}}
+        </fieldset>
+        {{end}}
+
+        {{if .WritePerms}}
+        <div class="grouplead" style="margin-top:22px;">
+          <h2 id="lg-write">Write access</h2>
+          <span class="selall" style="color:var(--write-ink); font-weight:600;">Can add &amp; change records</span>
+        </div>
+        <fieldset class="permgroup permgroup--write">
+          <legend class="vh">Write access — choose which records this app may create or modify</legend>
+          <div class="permgroup__hd">
+            <span class="permgroup__icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </span>
+            <span>
+              <span class="permgroup__title">Write to your lifelog</span>
+              <span class="permgroup__sub">The app can create and modify these records.</span>
+            </span>
+          </div>
+          {{range .WritePerms}}
+          <label class="perm">
+            <input class="perm__box" type="checkbox" name="grant" value="{{.Scope}}" checked>
+            <span class="perm__label">{{.Type}}</span> <span class="perm__type">{{.Type}}</span>
+            <span class="perm__meta">write</span>
+          </label>
+          {{end}}
+        </fieldset>
+        {{end}}
+
+        <fieldset class="box" style="margin-top:22px;">
+          <legend>Limit which data can be read <span class="muted" style="font-weight:500;">(optional)</span></legend>
+          <p class="hint" style="margin:2px 0 14px;">
+            Restrict reads to data from a date range, by when it occurred. Leave a field
+            blank for no limit. This applies to <strong>reads only</strong>.
+          </p>
+          <div class="daterow">
+            <div class="field">
+              <label for="data_from">From</label>
+              <input type="date" id="data_from" name="data_from" value="{{.DataFrom}}">
+            </div>
+            <div class="field">
+              <label for="data_to">To</label>
+              <input type="date" id="data_to" name="data_to" value="{{.DataTo}}">
+            </div>
+          </div>
+          <p class="hint" style="margin-top:12px;">
+            Dates are calendar days in this node's timezone (<code class="mono">{{.TZName}}</code>).
+          </p>
+        </fieldset>
+
+        {{if .Offline}}
+        <div class="callout" style="margin-top:18px;">
+          <input class="callout__check" type="checkbox" id="offline" name="offline" value="1">
+          <label for="offline" style="cursor:pointer;">
+            <span class="callout__title">Allow long-lived access</span>
+            <span class="callout__body" style="display:block; margin-top:3px;">
+              The app is asking to stay connected in the background (refresh tokens), so it
+              can keep accessing your lifelog without sending you here again.
+            </span>
+          </label>
+        </div>
+        {{end}}
+
+        <input type="hidden" name="client_id"             value="{{.ClientID}}">
+        <input type="hidden" name="redirect_uri"          value="{{.RedirectURI}}">
+        <input type="hidden" name="response_type"         value="code">
+        <input type="hidden" name="scope"                 value="{{.Scope}}">
+        <input type="hidden" name="resource"              value="{{.Resource}}">
+        <input type="hidden" name="state"                 value="{{.State}}">
+        <input type="hidden" name="code_challenge"        value="{{.Challenge}}">
+        <input type="hidden" name="code_challenge_method" value="S256">
+        <input type="hidden" name="csrf_token"            value="{{.CSRF}}">
+
+        <div class="actbar">
+          <div class="actbar__btns">
+            <button class="btn btn--danger" type="submit" name="action" value="deny">Deny</button>
+            <button class="btn btn--primary" type="submit" name="action" value="approve">Approve selected</button>
+          </div>
+          <p class="note reassure">
+            <span class="note__icon" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+            </span>
+            You can revoke any of this at any time from the <a href="/grants">grants page</a>.
+          </p>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="site-foot__in">
+    <span class="mono">open-lifelog node — {{.NodeVersion}}</span>
+    <span aria-hidden="true">·</span>
+    <span>Approving here grants only what's checked. Nothing else.</span>
+  </div>
+</footer>
+</body>
+</html>`))
+
+func renderConsent(w http.ResponseWriter, req authRequest, perms []permView, offline bool, csrf, dataFrom, dataTo, tzName, nodeVersion string) {
+	var readPerms, writePerms []permView
+	for _, p := range perms {
+		if p.Op == "read" {
+			readPerms = append(readPerms, p)
+		} else {
+			writePerms = append(writePerms, p)
+		}
+	}
+	clientInitial := "?"
+	if n := orDefault(req.clientName, req.clientID); n != "" {
+		for _, r := range n {
+			clientInitial = string(r)
+			break
+		}
+	}
+	var redirectHost string
+	if u, err := url.Parse(req.redirectURI); err == nil {
+		redirectHost = u.Host
+	}
+	if redirectHost == "" {
+		redirectHost = req.redirectURI
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = consentTmpl.Execute(w, map[string]any{
-		"ClientName":  orDefault(req.clientName, req.clientID),
-		"ClientID":    req.clientID,
-		"RedirectURI": req.redirectURI,
-		"Scope":       req.scope,
-		"Resource":    req.resource,
-		"State":       req.state,
-		"Challenge":   req.challenge,
-		"CSRF":        csrf,
-		"Perms":       perms,
-		"Offline":     offline,
-		"DataFrom":    dataFrom,
-		"DataTo":      dataTo,
-		"TZName":      tzName,
+		"ClientName":    orDefault(req.clientName, req.clientID),
+		"ClientInitial": clientInitial,
+		"ClientID":      req.clientID,
+		"RedirectURI":   req.redirectURI,
+		"RedirectHost":  redirectHost,
+		"Scope":         req.scope,
+		"Resource":      req.resource,
+		"State":         req.state,
+		"Challenge":     req.challenge,
+		"CSRF":          csrf,
+		"ReadPerms":     readPerms,
+		"WritePerms":    writePerms,
+		"Offline":       offline,
+		"DataFrom":      dataFrom,
+		"DataTo":        dataTo,
+		"TZName":        tzName,
+		"NodeVersion":   nodeVersion,
 	})
 }
 
@@ -863,51 +1043,275 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 // page shows the resulting capability URL to copy. No record is created; the
 // URL itself IS the capability (à la Discord bot invites).
 var linksBuilderTmpl = template.Must(template.New("links").Parse(`<!doctype html>
-<title>open-lifelog — capability URL builder</title>
-<h1>MCP capability URL builder</h1>
-<p>Build a scoped MCP URL by picking, per type, whether the app can read it,
-   write it, both, or neither. The URL itself encodes the capability — there
-   is nothing to save or revoke. Anyone using the URL still has to go through
-   OAuth and your consent screen; the URL is only the upper bound.</p>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capability URL builder — open-lifelog</title>
+<link rel="stylesheet" href="/lifelog.css">
+<style>
+  .pagehead { margin-bottom: 22px; display: grid; gap: 8px; max-width: 64ch; }
+  .pagehead h1 { font-size: clamp(1.5rem, 1.2rem + 1.4vw, 1.9rem); font-weight: 680; }
+  .grid2 { display: grid; gap: 22px; grid-template-columns: 1fr; }
+  @media (min-width: 820px) { .grid2 { grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: start; } }
+  .builder .type-cell { font-weight: 600; }
+  .builder .type-cell code { font-family: var(--mono); font-weight: 400; color: var(--ink-soft); margin-left: 8px; font-size: 0.86rem; }
+  .builder tr.is-all .type-cell { font-weight: 700; }
+  .builder tr.is-all .type-cell code { color: var(--accent-ink); }
+  .builder .allnote { display: block; font-weight: 500; font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+  .builder thead .col-rw small { display:block; font-weight:600; font-size:0.7rem; color:var(--muted); text-transform:none; letter-spacing:0; }
+  .resultcol { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; position: sticky; top: 80px; }
+  .urlcap { color: var(--accent-ink); font-weight: 600; }
+  .empty-url { color: var(--muted); font-family: var(--font); }
+  .examples code { white-space: normal; word-break: break-all; overflow-wrap: anywhere; }
+  .examples dt { font-weight: 600; font-size: 0.9rem; margin-top: 10px; }
+  .examples dd { margin: 3px 0 0; }
+  .examples dl { margin: 0; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
 
-<form method="get" action="/links">
-  <table border="1" cellpadding="6">
-    <tr><th>Type</th><th>read</th><th>write</th></tr>
-    <tr>
-      <td><strong>*</strong> (all)</td>
-      <td><input type="checkbox" name="r" value="*" {{if index $.Read "*"}}checked{{end}}></td>
-      <td><input type="checkbox" name="w" value="*" {{if index $.Write "*"}}checked{{end}}></td>
-    </tr>
-    {{range $t := .Types}}
-    <tr>
-      <td>{{$t}}</td>
-      <td><input type="checkbox" name="r" value="{{$t}}" {{if index $.Read $t}}checked{{end}}></td>
-      <td><input type="checkbox" name="w" value="{{$t}}" {{if index $.Write $t}}checked{{end}}></td>
-    </tr>
-    {{end}}
-  </table>
-  <p><button type="submit">Update URL</button></p>
-</form>
+<header class="site">
+  <div class="site__in">
+    <a class="brand" href="/">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">open<span class="brand__dot">·</span>lifelog</span>
+    </a>
+    <nav class="site__nav" aria-label="Primary">
+      <a href="/grants">Connected apps</a>
+      <a href="/links" aria-current="page">URL builder</a>
+    </nav>
+  </div>
+</header>
 
-{{if .Capability}}
-<h2>Capability URLs</h2>
-<p>The same capability, on either surface — hand the app whichever it speaks:</p>
-<p>MCP client (Claude, ChatGPT):<br><code style="font-size:1.2em">{{.BaseURL}}/mcp/{{.Capability}}</code></p>
-<p>REST/HTTP client:<br><code style="font-size:1.2em">{{.BaseURL}}/api/{{.Capability}}</code></p>
-{{else}}
-<p><em>Tick at least one box to generate a URL.</em></p>
-{{end}}
+<main id="main">
+  <div class="wrap wrap--wide">
 
-<h2>Examples</h2>
-<ul>
-  <li><code>{{.BaseURL}}/mcp/meal:w</code> — write meal only (MCP)</li>
-  <li><code>{{.BaseURL}}/api/meal:rw,sleep:r</code> — read+write meal, read sleep (REST)</li>
-  <li><code>{{.BaseURL}}/api/*:r</code> — read everything (REST)</li>
-  <li><code>{{.BaseURL}}/mcp</code> — un-scoped (offers everything during consent)</li>
-</ul>
-<p style="color:#555">REST paths sit under the capability:
-   <code>GET /api/&lt;capability&gt;/query/&lt;type&gt;</code>,
-   <code>POST /api/&lt;capability&gt;/records/&lt;type&gt;</code>, etc.</p>`))
+    <div class="pagehead">
+      <span class="eyebrow">Capability URLs</span>
+      <h1>URL builder</h1>
+      <p class="lede">
+        Pick what an app may read or write, then copy the scoped URL to hand over.
+        <strong>Nothing is created and there's nothing to revoke</strong> — the URL itself is
+        the capability. Anyone using it still goes through OAuth and your consent screen;
+        the URL is only the <strong>upper bound</strong> of what they can ask for.
+      </p>
+    </div>
+
+    <div class="grid2">
+
+      <form method="get" action="/links" id="builder">
+        <section class="card">
+          <div class="card__hd">
+            <h2 class="h2" style="font-size:1.05rem;">Choose access</h2>
+            <p class="muted" style="font-size:0.9rem; margin-top:4px;">Tick read, write, both, or neither — per type.</p>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl builder">
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col" class="col-rw">read</th>
+                  <th scope="col" class="col-rw">write</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="is-all">
+                  <td class="type-cell">All types <code>*</code><span class="allnote">Selects all types (and any added later). Untick one to make an explicit list.</span></td>
+                  <td class="col-rw col-rw--r"><label><span class="vh">Read all types</span><input type="checkbox" name="r" value="*"{{if index $.Read "*"}} checked{{end}}></label></td>
+                  <td class="col-rw col-rw--w"><label><span class="vh">Write all types</span><input type="checkbox" name="w" value="*"{{if index $.Write "*"}} checked{{end}}></label></td>
+                </tr>
+                {{range $t := .Types}}
+                <tr>
+                  <td class="type-cell">{{$t}} <code>{{$t}}</code></td>
+                  <td class="col-rw col-rw--r"><label><span class="vh">Read {{$t}}</span><input type="checkbox" name="r" value="{{$t}}"{{if index $.Read $t}} checked{{end}}></label></td>
+                  <td class="col-rw col-rw--w"><label><span class="vh">Write {{$t}}</span><input type="checkbox" name="w" value="{{$t}}"{{if index $.Write $t}} checked{{end}}></label></td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          <div class="card__ft" id="builder-foot">
+            <button class="btn btn--primary" type="submit">Update URL</button>
+            <span class="muted" style="font-size:0.85rem;">Reloads with your selection in the URL.</span>
+          </div>
+        </section>
+      </form>
+
+      <div class="resultcol">
+
+        {{if .Capability}}
+        <div class="url-out" id="result">
+          <p class="eyebrow" style="margin-bottom:12px;">Your capability URLs</p>
+          <div class="url-row">
+            <span class="url-row__label">MCP</span>
+            <span class="url-row__val" id="mcp-url">{{.BaseURL}}/mcp/<span class="urlcap" id="cap-mcp">{{.Capability}}</span></span>
+            <button class="copy-btn" type="button" data-copy="mcp-url" aria-label="Copy MCP URL">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke-linecap="round"/></svg>
+              <span class="copy-btn__t">Copy</span>
+            </button>
+          </div>
+          <div class="url-row">
+            <span class="url-row__label">REST</span>
+            <span class="url-row__val" id="api-url">{{.BaseURL}}/api/<span class="urlcap" id="cap-api">{{.Capability}}</span></span>
+            <button class="copy-btn" type="button" data-copy="api-url" aria-label="Copy REST URL">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke-linecap="round"/></svg>
+              <span class="copy-btn__t">Copy</span>
+            </button>
+          </div>
+        </div>
+        {{else}}
+        <div class="url-out" id="result-empty">
+          <p class="empty-url" style="margin:0;">Tick at least one box to generate a URL.</p>
+        </div>
+        {{end}}
+
+        <div class="note">
+          <span class="note__icon" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+          </span>
+          <span>Holding this URL grants nothing on its own. The app still has to pass your consent screen, and you can revoke what you grant from <a href="/grants">Connected apps</a>.</span>
+        </div>
+
+        <section class="card examples">
+          <div class="card__bd">
+            <h2 class="h3" style="margin-bottom:6px;">Examples</h2>
+            <dl>
+              <dt>Write meals only</dt>
+              <dd><code>{{.BaseURL}}/mcp/meal:w</code></dd>
+              <dt>Read + write meals, read sleep</dt>
+              <dd><code>{{.BaseURL}}/api/meal:rw,sleep:r</code></dd>
+              <dt>Read everything</dt>
+              <dd><code>{{.BaseURL}}/api/*:r</code></dd>
+              <dt>Un-scoped (all types)</dt>
+              <dd><code>{{.BaseURL}}/mcp</code></dd>
+            </dl>
+            <p class="hint" style="margin-top:14px;">
+              REST paths sit under the capability, e.g.
+              <code class="mono">GET /api/&lt;capability&gt;/query/&lt;type&gt;</code> and
+              <code class="mono">POST /api/&lt;capability&gt;/records/&lt;type&gt;</code>.
+            </p>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="site-foot__in">
+    <span class="mono">open-lifelog node — {{.NodeVersion}}</span>
+    <span aria-hidden="true">·</span>
+    <span>A capability URL is an upper bound, never a grant.</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var form = document.getElementById('builder');
+  if (!form) return;
+  var BASE = '{{.BaseURL}}';
+
+  // Hide no-JS "Update URL" footer since JS will drive live updates.
+  var ft = document.getElementById('builder-foot');
+  if (ft) ft.style.display = 'none';
+
+  function col(name) { return [].slice.call(form.querySelectorAll('input[name=' + name + ']')); }
+  function starBox(name) { return form.querySelector('input[name=' + name + '][value="*"]'); }
+  function others(name) { return col(name).filter(function (b) { return b.value !== '*'; }); }
+
+  function onChange(e) {
+    var t = e.target;
+    if (t && (t.name === 'r' || t.name === 'w')) {
+      var name = t.name, s = starBox(name);
+      if (t.value === '*') {
+        others(name).forEach(function (b) { b.checked = s.checked; });
+      } else if (s.checked && !t.checked) {
+        s.checked = false;
+      }
+    }
+    render();
+  }
+
+  function compute() {
+    var sr = starBox('r').checked, sw = starBox('w').checked;
+    var toks = [];
+    var sp = (sr ? 'r' : '') + (sw ? 'w' : '');
+    if (sp) toks.push('*:' + sp);
+    form.querySelectorAll('tbody tr:not(.is-all)').forEach(function (tr) {
+      var rb = tr.querySelector('input[name=r]'), wb = tr.querySelector('input[name=w]');
+      if (!rb || !wb) return;
+      var r = sr ? false : rb.checked;
+      var w = sw ? false : wb.checked;
+      var p = (r ? 'r' : '') + (w ? 'w' : '');
+      if (p) toks.push(rb.value + ':' + p);
+    });
+    return toks.join(',');
+  }
+
+  function render() {
+    var cap = compute();
+    var has = cap.length > 0;
+    var result = document.getElementById('result');
+    var empty = document.getElementById('result-empty');
+    if (has) {
+      if (!result) {
+        var d = document.createElement('div');
+        d.className = 'url-out'; d.id = 'result';
+        d.innerHTML = '<p class="eyebrow" style="margin-bottom:12px;">Your capability URLs</p>' +
+          urlRow('MCP', 'mcp-url', 'cap-mcp', '') +
+          urlRow('REST', 'api-url', 'cap-api', '');
+        if (empty) empty.parentNode.insertBefore(d, empty);
+        result = d;
+        bindCopy(result);
+      }
+      document.getElementById('cap-mcp').textContent = cap;
+      document.getElementById('cap-api').textContent = cap;
+      result.hidden = false;
+      if (empty) empty.hidden = true;
+    } else {
+      if (result) result.hidden = true;
+      if (empty) { empty.hidden = false; } else {
+        var d = document.createElement('div');
+        d.className = 'url-out'; d.id = 'result-empty';
+        d.innerHTML = '<p class="empty-url" style="margin:0;">Tick at least one box to generate a URL.</p>';
+        if (result) result.parentNode.insertBefore(d, result.nextSibling);
+      }
+    }
+  }
+
+  function urlRow(label, rowId, capId, cap) {
+    return '<div class="url-row"><span class="url-row__label">' + label + '</span>' +
+      '<span class="url-row__val" id="' + rowId + '">' + BASE + '/' + label.toLowerCase() + '/<span class="urlcap" id="' + capId + '">' + cap + '</span></span>' +
+      '<button class="copy-btn" type="button" data-copy="' + rowId + '" aria-label="Copy ' + label + ' URL">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke-linecap="round"/></svg>' +
+      '<span class="copy-btn__t">Copy</span></button></div>';
+  }
+
+  function bindCopy(root) {
+    (root || document).querySelectorAll('[data-copy]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = document.getElementById(btn.dataset.copy);
+        if (!target) return;
+        navigator.clipboard.writeText(target.textContent).then(function () {
+          var t = btn.querySelector('.copy-btn__t');
+          if (t) { t.textContent = 'Copied!'; setTimeout(function () { t.textContent = 'Copy'; }, 1500); }
+        });
+      });
+    });
+  }
+
+  bindCopy(null);
+  form.addEventListener('change', onChange);
+  form.addEventListener('submit', function (e) { e.preventDefault(); render(); });
+  render();
+})();
+</script>
+</body>
+</html>`))
 
 func (s *Server) linksBuilder(w http.ResponseWriter, r *http.Request) {
 	if !s.owner.Authenticated(r) {
@@ -954,77 +1358,354 @@ func (s *Server) linksBuilder(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = linksBuilderTmpl.Execute(w, map[string]any{
-		"BaseURL":    s.baseURL,
-		"Types":      s.types,
-		"Read":       read,
-		"Write":      write,
-		"Capability": capability,
+		"BaseURL":     s.baseURL,
+		"Types":       s.types,
+		"Read":        read,
+		"Write":       write,
+		"Capability":  capability,
+		"NodeVersion": s.nodeVersion,
 	})
 }
 
 // --- owner grants dashboard ---
 
 var clientsTmpl = template.Must(template.New("clients").Parse(`<!doctype html>
-<title>open-lifelog — connected apps</title>
-<h1>Connected apps</h1>
-<p>Apps you've granted access to your lifelog. Click Manage to change or revoke.</p>
-<table border="1" cellpadding="6">
-  <tr><th>App</th><th>Client ID</th><th>Active grants</th><th></th></tr>
-  {{range .Clients}}
-  <tr>
-    <td><strong>{{.Name}}</strong></td>
-    <td><code>{{.ID}}</code></td>
-    <td>{{.Active}}</td>
-    <td><a href="/grants/client?client_id={{.ID}}">Manage</a></td>
-  </tr>
-  {{else}}
-  <tr><td colspan="4"><em>No apps connected yet.</em></td></tr>
-  {{end}}
-</table>`))
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connected apps — open-lifelog</title>
+<link rel="stylesheet" href="/lifelog.css">
+<style>
+  .pagehead { margin-bottom: 24px; display: grid; gap: 8px; }
+  .pagehead h1 { font-size: clamp(1.5rem, 1.2rem + 1.4vw, 1.9rem); font-weight: 680; }
+  .apps .name { font-weight: 600; }
+  .apps .name.unnamed { color: var(--muted); font-style: italic; font-weight: 500; }
+  .apps .cid { font-family: var(--mono); font-size: 0.86rem; color: var(--ink-soft); white-space: nowrap; }
+  .grants-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 4px 12px 4px 10px; border-radius: 999px;
+    border: 1px solid var(--accent-line); background: var(--accent-wash);
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .grants-pill__dot { inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+  .grants-num { font-weight: 700; font-size: 0.98rem; color: var(--accent-ink); }
+  .grants-unit { font-weight: 600; font-size: 0.8rem; color: var(--ink-soft); }
+  .grants-pill.is-zero { border-color: var(--line-strong); background: var(--surface-2); }
+  .grants-pill.is-zero .grants-pill__dot { background: var(--line-strong); }
+  .grants-pill.is-zero .grants-num { color: var(--muted); font-weight: 600; }
+  .manage-link {
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    font-weight: 600; font-size: 0.92rem; color: var(--accent-ink);
+    padding: 8px 12px; border-radius: var(--r-sm); border: 1px solid var(--accent-line);
+    background: var(--accent-wash); min-height: 38px;
+  }
+  .manage-link:hover { background: var(--surface); }
+  .apps td.right { text-align: right; }
+  .apps td.last-used { font-size: 0.86rem; color: var(--muted); white-space: nowrap; }
+  .apps .cid { display: inline-block; max-width: 200px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; vertical-align: bottom; }
+  @media (max-width: 620px) {
+    .card--app-list { border: 0; background: transparent; box-shadow: none; padding: 0; }
+    .card--app-list .table-wrap { padding: 0; }
+    .apps thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .apps, .apps tbody { display: block; }
+    .apps tr {
+      display: block; position: relative;
+      border: 1px solid var(--line); border-radius: var(--r-lg);
+      padding: 12px 14px; margin-bottom: 10px;
+    }
+    .apps td { display: block; border: 0 !important; padding: 1px 0; }
+    /* App name — leave room for the pill */
+    .apps td:nth-child(1) { padding-right: 100px; }
+    /* Client ID */
+    .apps td:nth-child(2) { display: flex; align-items: baseline; overflow: hidden; font-size: 0.86rem; color: var(--ink-soft); margin-top: 6px; }
+    .apps td:nth-child(2)::before { content: 'client id: '; color: var(--muted); flex: none; }
+    .apps .cid { min-width: 0; max-width: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    /* Grants pill — pinned top-right */
+    .apps td:nth-child(3) { position: absolute; top: 12px; right: 14px; }
+    /* Last used */
+    .apps td:nth-child(4) { font-size: 0.86rem; margin-top: 1px; }
+    .apps td:nth-child(4)::before { content: 'last used: '; color: var(--muted); }
+    .apps td.last-used { color: var(--ink-soft); }
+    /* Manage button: invisible stretched link covering the whole card */
+    .apps td:nth-child(5) { position: absolute; inset: 0; overflow: hidden; display: block; padding: 0; }
+    .apps .manage-link { display: block; width: 100%; height: 100%; font-size: 0; color: transparent; background: transparent; border: 0; border-radius: var(--r-lg); }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site">
+  <div class="site__in">
+    <a class="brand" href="/">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">open<span class="brand__dot">·</span>lifelog</span>
+    </a>
+    <nav class="site__nav" aria-label="Primary">
+      <a href="/grants" aria-current="page">Connected apps</a>
+      <a href="/links">URL builder</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap wrap--wide">
+
+    <div class="pagehead">
+      <span class="eyebrow">Access control</span>
+      <h1>Connected apps</h1>
+      <p class="lede">What's accessing your lifelog right now. Manage or revoke each app's access.</p>
+    </div>
+
+    <section class="card card--app-list" aria-label="Connected apps">
+      {{if .Clients}}
+      <div class="table-wrap">
+        <table class="tbl apps">
+          <thead>
+            <tr>
+              <th scope="col">App</th>
+              <th scope="col">Client ID</th>
+              <th scope="col">Active grants</th>
+              <th scope="col">Last used</th>
+              <th scope="col"><span class="vh">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Clients}}
+            <tr>
+              <td data-th="App"><span class="name{{if not .Name}} unnamed{{end}}">{{if .Name}}{{.Name}}{{else}}(unnamed app){{end}}</span></td>
+              <td data-th="Client ID"><span class="cid" title="{{.ID}}">{{.ID}}</span></td>
+              <td data-th="Active grants">
+                <span class="grants-pill{{if not .Active}} is-zero{{end}}">
+                  <span class="grants-pill__dot" aria-hidden="true"></span>
+                  <span class="grants-num">{{.Active}}</span> <span class="grants-unit">active</span>
+                </span>
+              </td>
+              <td data-th="Last used" class="last-used">{{.LastUsed}}</td>
+              <td class="right"><a class="manage-link" href="/grants/client?client_id={{.ID}}">Manage <span aria-hidden="true">→</span></a></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="empty">
+        <div class="empty__mark" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8"/></svg>
+        </div>
+        <p>No apps connected yet.</p>
+      </div>
+      {{end}}
+    </section>
+
+    <p class="note" style="margin-top:16px; max-width:60ch;">
+      <span class="note__icon" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      </span>
+      The active-grants count is how much an app can do right now. See one you don't
+      recognize? Open it and revoke.
+    </p>
+
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="site-foot__in">
+    <span class="mono">open-lifelog node — {{.NodeVersion}}</span>
+    <span aria-hidden="true">·</span>
+    <span>Changes you make here take effect immediately.</span>
+  </div>
+</footer>
+</body>
+</html>`))
 
 var clientDetailTmpl = template.Must(template.New("clientDetail").Parse(`<!doctype html>
-<title>open-lifelog — manage {{.Name}}</title>
-<p><a href="/grants">&larr; all apps</a></p>
-<h1>Manage access — {{.Name}}</h1>
-<p><code>{{.ID}}</code></p>
-<p>Tick what this app may do. Changes take effect immediately (no re-approval needed).</p>
-<form method="post" action="/grants/client">
-  <input type="hidden" name="client_id" value="{{.ID}}">
-  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  <table border="1" cellpadding="6">
-    <tr><th>Type</th><th>Read</th><th>Write</th></tr>
-    {{range .Rows}}
-    <tr>
-      <td>{{.Type}}</td>
-      <td><input type="checkbox" name="grant" value="lifelog:read:{{.Type}}" {{if .Read}}checked{{end}}></td>
-      <td><input type="checkbox" name="grant" value="lifelog:write:{{.Type}}" {{if .Write}}checked{{end}}></td>
-    </tr>
-    {{end}}
-  </table>
-  <fieldset>
-    <legend>Read data window (optional)</legend>
-    <p style="color:#555">Limit which data this app can read, by when it occurred.
-       Blank means no limit. Dates are calendar days in this node's timezone
-       (<strong>{{.TZName}}</strong>) and apply to reads only.</p>
-    <label>From <input type="date" name="data_from" value="{{.DataFrom}}"></label>
-    <label>To <input type="date" name="data_to" value="{{.DataTo}}"></label>
-  </fieldset>
-  <button type="submit">Save</button>
-</form>`))
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage app — open-lifelog</title>
+<link rel="stylesheet" href="/lifelog.css">
+<style>
+  .detail { max-width: 680px; margin-inline: auto; }
+  .backlink {
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+    color: var(--ink-soft); font-weight: 600; font-size: 0.92rem; padding: 6px 0; margin-bottom: 14px;
+  }
+  .backlink:hover { color: var(--ink); }
+  .idhead { display: flex; gap: 14px; align-items: center; margin-bottom: 6px; }
+  .idhead .appavatar {
+    inline-size: 46px; block-size: 46px; border-radius: 12px; flex: none;
+    display: grid; place-items: center; font-weight: 700; font-size: 1.2rem;
+    color: var(--accent-ink); background: var(--accent-wash); border: 1px solid var(--accent-line);
+  }
+  .idhead h1 { font-size: 1.45rem; font-weight: 660; }
+  .idhead .cid { font-family: var(--mono); font-size: 0.86rem; color: var(--muted); }
+  .rwtable th.col-rw, .rwtable td.col-rw { text-align: center; width: 96px; }
+  .rwtable td.col-rw label { display: inline-grid; place-items: center; min-height: var(--tap); min-width: var(--tap); cursor: pointer; margin: 0; }
+  .rwtable td.col-rw input { inline-size: 22px; block-size: 22px; margin: 0; cursor: pointer; }
+  .rwtable .col-rw--r input { accent-color: var(--accent); }
+  .rwtable .col-rw--w input { accent-color: var(--write); }
+  .rwtable .type-cell { font-weight: 600; }
+  .rwtable .type-cell code { font-family: var(--mono); font-weight: 400; color: var(--ink-soft); margin-left: 8px; font-size: 0.86rem; }
+  .rwtable thead .col-rw { color: var(--ink-soft); }
+  .rwtable thead th { vertical-align: top; }
+  .rwtable thead .col-rw small { display:block; font-weight:600; letter-spacing:0; text-transform:none; font-size:0.7rem; color:var(--muted); margin-top:3px; }
+  .colhint-w { color: var(--write-ink) !important; }
+  .dangerzone {
+    margin-top: 22px; border: 1px solid var(--danger-line); border-radius: var(--r-lg);
+    background: var(--danger-wash); padding: 16px 18px;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  }
+  .dangerzone__txt { flex: 1 1 240px; }
+  .dangerzone__txt b { color: var(--danger-ink); font-size: 0.98rem; }
+  .dangerzone__txt p { font-size: 0.86rem; color: var(--ink-soft); margin-top: 2px; }
+  .savebar {
+    position: sticky; bottom: 0; margin-top: 22px;
+    background: oklch(1 0 0 / 0.92); backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line); padding: 16px 0;
+    display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+  }
+  .savebar .live { margin-inline-end: auto; font-size: 0.85rem; color: var(--muted); display: inline-flex; gap: 7px; align-items: center; }
+  .savebar .live .tag__dot { background: var(--ok); inline-size:7px; block-size:7px; border-radius:50%; }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site">
+  <div class="site__in">
+    <a class="brand" href="/">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">open<span class="brand__dot">·</span>lifelog</span>
+    </a>
+    <nav class="site__nav" aria-label="Primary">
+      <a href="/grants" aria-current="page">Connected apps</a>
+      <a href="/links">URL builder</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+    <div class="detail">
+
+      <a class="backlink" href="/grants"><span aria-hidden="true">←</span> All apps</a>
+
+      <div class="idhead">
+        <span class="appavatar" aria-hidden="true">{{.Initial}}</span>
+        <div>
+          <h1>{{.Name}}</h1>
+          <span class="cid">{{.ID}}</span>
+        </div>
+      </div>
+      <p class="lede" style="font-size:1rem; margin-bottom:22px; max-width:56ch;">
+        Tick what this app may do. Changes take effect immediately — no re-approval needed.
+      </p>
+
+      <form method="post" action="/grants/client">
+
+        <section class="card" aria-labelledby="h-perms">
+          <div class="card__hd">
+            <h2 class="h2" id="h-perms" style="font-size:1.05rem;">Permissions</h2>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl rwtable">
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col" class="col-rw">Read <small>GET</small></th>
+                  <th scope="col" class="col-rw colhint-w">Write <small>CREATE / UPDATE</small></th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .Rows}}
+                <tr>
+                  <td class="type-cell">{{.Type}} <code>{{.Type}}</code></td>
+                  <td class="col-rw col-rw--r"><label><span class="vh">Read {{.Type}}</span><input type="checkbox" name="grant" value="lifelog:read:{{.Type}}"{{if .Read}} checked{{end}}></label></td>
+                  <td class="col-rw col-rw--w"><label><span class="vh">Write {{.Type}}</span><input type="checkbox" name="grant" value="lifelog:write:{{.Type}}"{{if .Write}} checked{{end}}></label></td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <fieldset class="box" style="margin-top:18px;">
+          <legend>Read data window <span class="muted" style="font-weight:500;">(optional)</span></legend>
+          <p class="hint" style="margin:2px 0 14px;">
+            Restrict reads to data from a date range. Leave a field blank for no limit.
+            Applies to <strong>reads only</strong>.
+          </p>
+          <div class="daterow">
+            <div class="field">
+              <label for="data_from">From</label>
+              <input type="date" id="data_from" name="data_from" value="{{.DataFrom}}">
+            </div>
+            <div class="field">
+              <label for="data_to">To</label>
+              <input type="date" id="data_to" name="data_to" value="{{.DataTo}}">
+            </div>
+          </div>
+          <p class="hint" style="margin-top:12px;">
+            Calendar days in this node's timezone (<code class="mono">{{.TZName}}</code>).
+          </p>
+        </fieldset>
+
+        <div class="dangerzone">
+          <div class="dangerzone__txt">
+            <b>Cut off this app</b>
+            <p>Removes every permission at once. The app loses all access immediately.</p>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn--danger" type="submit" name="action" value="revoke">Revoke all access</button>
+            <button class="btn btn--danger" type="submit" name="action" value="delete"
+              onclick="return confirm('Delete this app and all its data permanently?')">Delete app</button>
+          </div>
+        </div>
+
+        <input type="hidden" name="client_id" value="{{.ID}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+        <div class="savebar">
+          <span class="live"><span class="tag__dot"></span> Shows this app's current live access</span>
+          <a class="btn btn--ghost" href="/grants">Cancel</a>
+          <button class="btn btn--primary" type="submit" name="action" value="save">Save changes</button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="site-foot__in">
+    <span class="mono">open-lifelog node — {{.NodeVersion}}</span>
+    <span aria-hidden="true">·</span>
+    <span>Unchecking everything and saving also revokes the app.</span>
+  </div>
+</footer>
+</body>
+</html>`))
 
 // clientSummary is a row on the connected-apps page.
 type clientSummary struct {
 	ID, Name string
 	Active   int
+	LastUsed string // human-readable relative time
 }
 
 // clientsWithGrants lists every client that has appeared in the grant ledger,
-// joined to its registered name.
+// joined to its registered name and last token issuance time.
 func (s *Server) clientsWithGrants() ([]clientSummary, error) {
 	rows, err := s.db.Query(`
 		SELECT g.client_id, COALESCE(c.client_name, ''),
-		       SUM(CASE WHEN g.status='active' THEN 1 ELSE 0 END)
-		FROM grants g LEFT JOIN oauth_clients c ON c.client_id = g.client_id
+		       SUM(CASE WHEN g.status='active' THEN 1 ELSE 0 END),
+		       COALESCE(MAX(t.created_at), '')
+		FROM grants g
+		LEFT JOIN oauth_clients c ON c.client_id = g.client_id
+		LEFT JOIN access_tokens t ON t.client_id = g.client_id
 		GROUP BY g.client_id
 		ORDER BY MAX(g.granted_at) DESC`)
 	if err != nil {
@@ -1034,15 +1715,41 @@ func (s *Server) clientsWithGrants() ([]clientSummary, error) {
 	var out []clientSummary
 	for rows.Next() {
 		var cs clientSummary
-		if err := rows.Scan(&cs.ID, &cs.Name, &cs.Active); err != nil {
+		var lastToken string
+		if err := rows.Scan(&cs.ID, &cs.Name, &cs.Active, &lastToken); err != nil {
 			return nil, err
 		}
 		if cs.Name == "" {
 			cs.Name = "(unnamed app)"
 		}
+		cs.LastUsed = relativeTime(lastToken, s.now())
 		out = append(out, cs)
 	}
 	return out, rows.Err()
+}
+
+// relativeTime formats a RFC3339 timestamp as a human-readable relative string.
+func relativeTime(s string, now time.Time) string {
+	if s == "" {
+		return "never"
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return "—"
+	}
+	d := now.Sub(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		return t.UTC().Format("2006-01-02")
+	}
 }
 
 func (s *Server) grantsList(w http.ResponseWriter, r *http.Request) {
@@ -1056,7 +1763,7 @@ func (s *Server) grantsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = clientsTmpl.Execute(w, map[string]any{"Clients": clients})
+	_ = clientsTmpl.Execute(w, map[string]any{"Clients": clients, "NodeVersion": s.nodeVersion})
 }
 
 // clientRow is one type's read/write state on the detail page.
@@ -1085,16 +1792,46 @@ func (s *Server) clientDetail(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, clientRow{Type: typ, Read: read.Allowed, Write: write.Allowed})
 	}
 	from, to := windowDates(s.readWindowOrZero(clientID), s.loc)
+	name := orDefault(client.name, clientID)
+	initial := "?"
+	for _, r := range name {
+		initial = string(r)
+		break
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = clientDetailTmpl.Execute(w, map[string]any{
-		"ID":       clientID,
-		"Name":     orDefault(client.name, clientID),
-		"Rows":     rows,
-		"CSRF":     s.owner.CSRFToken(r),
-		"DataFrom": from,
-		"DataTo":   to,
-		"TZName":   s.loc.String(),
+		"ID":          clientID,
+		"Name":        name,
+		"Initial":     initial,
+		"Rows":        rows,
+		"CSRF":        s.owner.CSRFToken(r),
+		"DataFrom":    from,
+		"DataTo":      to,
+		"TZName":      s.loc.String(),
+		"NodeVersion": s.nodeVersion,
 	})
+}
+
+// deleteClient removes a client and all its associated rows from every table.
+// After this the client no longer appears in the grants list.
+func (s *Server) deleteClient(clientID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, stmt := range []string{
+		`DELETE FROM grants         WHERE client_id = ?`,
+		`DELETE FROM access_tokens  WHERE client_id = ?`,
+		`DELETE FROM refresh_tokens WHERE client_id = ?`,
+		`DELETE FROM auth_codes     WHERE client_id = ?`,
+		`DELETE FROM oauth_clients  WHERE client_id = ?`,
+	} {
+		if _, err := tx.Exec(stmt, clientID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // readWindowOrZero is ReadWindowFor with the error swallowed (a ledger read
@@ -1120,6 +1857,22 @@ func (s *Server) clientSave(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PostForm.Get("client_id")
 	if _, ok := s.lookupClient(clientID); !ok {
 		http.Error(w, "unknown client", http.StatusNotFound)
+		return
+	}
+	switch r.PostForm.Get("action") {
+	case "revoke":
+		if err := s.grants.RevokeAllForClient(clientID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/grants", http.StatusFound)
+		return
+	case "delete":
+		if err := s.deleteClient(clientID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/grants", http.StatusFound)
 		return
 	}
 	// Accept only well-formed scopes over known types — set the ledger to match.

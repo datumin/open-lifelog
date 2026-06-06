@@ -18,7 +18,7 @@ func newService(t *testing.T) *Service {
 		t.Fatalf("meta.Open: %v", err)
 	}
 	t.Cleanup(func() { store.Close() })
-	return New(store)
+	return New(store, "dev")
 }
 
 func TestEnsureSecretOnceThenIdempotent(t *testing.T) {

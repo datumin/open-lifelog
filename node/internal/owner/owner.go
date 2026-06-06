@@ -31,13 +31,14 @@ var ErrBadSecret = errors.New("invalid owner secret")
 
 // Service handles owner bootstrap, login, and session checks.
 type Service struct {
-	db         *sql.DB
-	now        func() time.Time
-	sessionTTL time.Duration
+	db          *sql.DB
+	now         func() time.Time
+	sessionTTL  time.Duration
+	nodeVersion string
 }
 
-func New(store *meta.Store) *Service {
-	return &Service{db: store.DB(), now: time.Now, sessionTTL: 12 * time.Hour}
+func New(store *meta.Store, nodeVersion string) *Service {
+	return &Service{db: store.DB(), now: time.Now, sessionTTL: 12 * time.Hour, nodeVersion: nodeVersion}
 }
 
 // EnsureSecret generates and stores the owner secret on first run. It returns
@@ -175,17 +176,108 @@ func (s *Service) Register(mux *http.ServeMux) {
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!doctype html>
-<title>open-lifelog — owner login</title>
-<h1>Owner login</h1>
-{{if .Error}}<p style="color:red">{{.Error}}</p>{{end}}
-<form method="post" action="/login">
-  <input type="hidden" name="return" value="{{.Return}}">
-  <label>Owner secret: <input type="password" name="secret" autofocus></label>
-  <button type="submit">Log in</button>
-</form>`))
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner login — open-lifelog</title>
+<link rel="stylesheet" href="/lifelog.css">
+<style>
+  .login-page { display: grid; place-items: start center; padding: 48px 20px 32px; }
+  .login { width: 100%; max-width: 440px; }
+  .login__brand {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    text-align: center; margin-bottom: 26px;
+  }
+  .login__brand .brand__mark { inline-size: 34px; block-size: 34px; border-width: 3px; }
+  .login__brand .brand__mark::after { inline-size: 12px; block-size: 12px; }
+  .login__brand .name { font-weight: 650; font-size: 1.15rem; letter-spacing: -0.02em; }
+  .login__brand .name .brand__dot { color: var(--accent); }
+  .login h1 { font-size: 1.5rem; font-weight: 660; text-align: center; }
+  .login__sub { text-align: center; color: var(--ink-soft); margin-top: 6px; font-size: 0.95rem; }
+  .login .field { margin-top: 8px; }
+  #secret { font-family: var(--mono); letter-spacing: 0.02em; padding-block: 13px; }
+  .login__foot { text-align: center; margin-top: 20px; font-size: 0.85rem; color: var(--muted); }
+  .login__foot code { color: var(--ink-soft); }
+  .errorbox { display: none; margin-bottom: 16px; }
+  body.is-error .errorbox { display: flex; }
+</style>
+</head>
+<body{{if .Error}} class="is-error"{{end}}>
+
+<header class="site">
+  <div class="site__in">
+    <a class="brand" href="/">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">open<span class="brand__dot">·</span>lifelog</span>
+    </a>
+  </div>
+</header>
+
+<main>
+  <div class="login-page">
+    <div class="login">
+      <div class="login__brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <span class="name">open<span class="brand__dot">·</span>lifelog</span>
+      </div>
+
+      <div class="card">
+        <div class="card__bd">
+          <h1>Owner login</h1>
+          <p class="login__sub">Sign in to manage access to your node.</p>
+
+          <div class="alert errorbox" role="alert">
+            <span class="alert__icon" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+            </span>
+            <span>Incorrect secret.</span>
+          </div>
+
+          <form method="post" action="/login">
+            <div class="field">
+              <label for="secret">Owner secret</label>
+              <input
+                type="password"
+                id="secret"
+                name="secret"
+                class="input input--mono"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+                autofocus
+                aria-describedby="secret-hint"
+                placeholder="paste your node secret">
+              <p class="hint" id="secret-hint">
+                The long secret your node printed at first run. Paste it — it isn't a password you'd remember.
+              </p>
+            </div>
+            <input type="hidden" name="return" value="{{.Return}}">
+            <button class="btn btn--primary btn--lg btn--block" type="submit" style="margin-top:8px;">Log in</button>
+          </form>
+        </div>
+      </div>
+
+      <p class="login__foot">
+        Lost the secret? Rotate it from the CLI — <code class="mono">olf secret rotate</code>.
+      </p>
+    </div>
+  </div>
+</main>
+
+<footer class="site-foot">
+  <div class="site-foot__in">
+    <span class="mono">open-lifelog node — {{.NodeVersion}}</span>
+    <span aria-hidden="true">·</span>
+    <span>Self-hosted. Your data stays on this node.</span>
+  </div>
+</footer>
+</body>
+</html>`))
 
 func (s *Service) loginForm(w http.ResponseWriter, r *http.Request) {
-	renderLogin(w, safeReturn(r.URL.Query().Get("return")), "")
+	s.renderLogin(w, safeReturn(r.URL.Query().Get("return")), "")
 }
 
 func (s *Service) loginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +289,7 @@ func (s *Service) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	token, err := s.login(r.PostForm.Get("secret"))
 	if err != nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		renderLogin(w, ret, "Incorrect secret.")
+		s.renderLogin(w, ret, "Incorrect secret.")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -219,9 +311,9 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
-func renderLogin(w http.ResponseWriter, ret, errMsg string) {
+func (s *Service) renderLogin(w http.ResponseWriter, ret, errMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = loginTmpl.Execute(w, map[string]string{"Return": ret, "Error": errMsg})
+	_ = loginTmpl.Execute(w, map[string]string{"Return": ret, "Error": errMsg, "NodeVersion": s.nodeVersion})
 }
 
 // safeReturn keeps post-login redirects local (no open redirect): only a path
