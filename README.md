@@ -41,6 +41,40 @@ Every OLF record shares a common **envelope** and carries a type-specific **payl
 Where applicable, payload shapes will align with existing health-data standards
 (Open mHealth / IEEE 1752.1) to maximize interoperability.
 
+## Install the node (`olf`)
+
+`olf` is the reference OLF node (MCP / REST / OAuth / owner UI), shipped as a
+single static binary.
+
+```sh
+curl -sSf https://raw.githubusercontent.com/datumin/open-lifelog/main/install.sh | sh
+```
+
+Or download a build for your platform from the
+[Releases](https://github.com/datumin/open-lifelog/releases) page, or with Go:
+
+```sh
+go install open-lifelog.org/node/cmd/olf@latest
+```
+
+### Verify the download
+
+Each release ships `checksums.txt` plus a cosign keyless signature
+(`checksums.txt.sig` / `checksums.txt.pem`):
+
+```sh
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp 'https://github.com/datumin/open-lifelog' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum -c checksums.txt --ignore-missing
+```
+
+The `olf` binary is versioned independently of the OLF format (semver,
+starting at `v0.1.0`).
+
 ## Status
 
 Early but functional. The format specification, the v1 JSON Schemas, and a
