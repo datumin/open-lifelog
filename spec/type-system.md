@@ -63,13 +63,27 @@ per-type invariants are listed in [v1 types](./types.md).
 Editorial changes (description text, examples, `$comment`) do **not** change the
 version.
 
+**Prefer minor and new types over a major bump.** A breaking **major** change is
+a near-last-resort. A mature reader ecosystem on major `N` cannot read major
+`N+1` records, and there is no flag-day migration — so a major bump risks
+stranding data behind the very apps that made the type useful. Evolve a type by
+**additive minors** (optional fields, widened constraints, new enum values)
+wherever possible, and when a shape genuinely cannot fit a type, introduce a
+**new extension or standard type** rather than breaking the existing one. When a
+major bump is truly unavoidable, both majors **coexist** in the registry and
+producers/consumers migrate independently (see [Multi-version coexistence](#multi-version-coexistence-read-rule)).
+
 ### Multi-version coexistence (read rule)
 
 - Records are **immutable** and keep the `olf_version` they were written with.
-- A reader **MUST validate/interpret a record using the latest published schema
-  of the record's major version** — i.e. `schemas/<type>/<M>.json`. Because
-  every minor within a major is backward-compatible by construction, the latest
-  `M.x` schema accepts all `M.y` (`y <= x`) records.
+- A reader **interprets a record using the latest published schema of the
+  record's major version** it can obtain — i.e. `schemas/<type>/<M>.json`.
+  Because every minor within a major is backward-compatible by construction, the
+  latest `M.x` schema accepts all `M.y` (`y <= x`) records. A reader holding an
+  older minor schema still **MUST NOT** reject a record merely for carrying
+  fields that schema does not define (see [Closed for writers, lenient for
+  readers](#additionalproperties)) — it simply cannot interpret those newer
+  fields until it updates.
 - Consequently a reader only needs **one schema per major** it supports, not one
   per minor. The precise minor in `olf_version` remains useful for
   **feature detection** (e.g. "this record may use a field introduced in 1.3").
@@ -89,16 +103,18 @@ The deliberate consequence: you **cannot** sprinkle ad-hoc fields into a
 standard payload. To carry extra data, define an **extension type** (below)
 rather than polluting a standard type's payload.
 
-**Reader responsibility (the cost of closed payloads).** Closed payloads mean
-forward compatibility within a major is *not automatic and asymmetric with the
-envelope*: a reader pinned to schema `M.0` will **reject** a record that uses an
-OPTIONAL field added in `M.1`. The latest-per-major read rule above is therefore
-a *premise the reader must satisfy*, not a free guarantee — to read records of
-major `M`, a reader MUST validate against the **latest minor of `M` it can
-obtain** and SHOULD keep its schemas current. This is the price paid for
-typo-safety and forced use of extension types. The **envelope makes the opposite
-trade** — it is open to unknown fields (see [Envelope evolution](#envelope-evolution)) —
-because envelope changes are rare and must not break older readers.
+**Closed for writers, lenient for readers.** `additionalProperties: false` is a
+**write-time** contract: it governs what a *producer* may write (enforced by
+whoever validates the write — e.g. the runtime node, which holds current
+schemas). It is **not** a license for *readers* to reject. A reader **MUST NOT**
+reject a record solely because its payload carries fields its schema does not
+define, as long as the record's major matches one the reader supports. This
+makes within-major forward compatibility automatic and symmetric with the
+envelope: an OPTIONAL field added in `M.1` does not break a reader that only
+knows `M.0`. To *use* a field introduced in a later minor, a reader needs that
+minor's schema (and SHOULD keep its schemas current); to merely *not break* on
+it, leniency suffices. The **envelope makes the same trade** for the same reason
+(see [Envelope evolution](#envelope-evolution)).
 
 ### Envelope evolution
 
