@@ -64,35 +64,46 @@ type Links interface {
 
 const loginPath = "/login"
 
-// Server is the OAuth authorization + resource server.
-type Server struct {
-	db       *sql.DB
-	baseURL  string // external origin, e.g. http://localhost:8787
-	owner    OwnerAuth
-	grants   *pep.Store
-	links    Links
-	types    []string // standard payload types, to expand wildcard scopes
-	loc      *time.Location // node timezone; defines the read window's calendar-day boundaries
-	now      func() time.Time
-	codeTTL  time.Duration
-	tokenTTL time.Duration
+// SchemaVersion pairs a writable type with its latest schema version, shown on
+// the home page. Mirrors validate.TypeVersion; oauth stays free of validate.
+type SchemaVersion struct {
+	Type    string
+	Version string
 }
 
-func New(store *meta.Store, baseURL string, owner OwnerAuth, grants *pep.Store, links Links, types []string, loc *time.Location) *Server {
+// Server is the OAuth authorization + resource server.
+type Server struct {
+	db             *sql.DB
+	baseURL        string // external origin, e.g. http://localhost:8787
+	owner          OwnerAuth
+	grants         *pep.Store
+	links          Links
+	types          []string // standard payload types, to expand wildcard scopes
+	loc            *time.Location // node timezone; defines the read window's calendar-day boundaries
+	now            func() time.Time
+	codeTTL        time.Duration
+	tokenTTL       time.Duration
+	nodeVersion    string          // this node binary's version, shown on home
+	schemaVersions []SchemaVersion // writable types × latest schema version
+}
+
+func New(store *meta.Store, baseURL string, owner OwnerAuth, grants *pep.Store, links Links, types []string, loc *time.Location, nodeVersion string, schemaVersions []SchemaVersion) *Server {
 	if loc == nil {
 		loc = time.Local
 	}
 	return &Server{
-		db:       store.DB(),
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		owner:    owner,
-		grants:   grants,
-		links:    links,
-		types:    types,
-		loc:      loc,
-		now:      time.Now,
-		codeTTL:  time.Minute,
-		tokenTTL: time.Hour,
+		db:             store.DB(),
+		baseURL:        strings.TrimRight(baseURL, "/"),
+		owner:          owner,
+		grants:         grants,
+		links:          links,
+		types:          types,
+		loc:            loc,
+		now:            time.Now,
+		codeTTL:        time.Minute,
+		tokenTTL:       time.Hour,
+		nodeVersion:    nodeVersion,
+		schemaVersions: schemaVersions,
 	}
 }
 
@@ -605,6 +616,16 @@ var homeTmpl = template.Must(template.New("home").Parse(`<!doctype html>
 <title>open-lifelog</title>
 <h1>open-lifelog</h1>
 <p>Your self-hosted lifelog node.</p>
+<p>open-lifelog node — <code>{{.NodeVersion}}</code></p>
+{{if .SchemaVersions}}
+<h2>Writable types</h2>
+<table>
+  <thead><tr><th>Type</th><th>Schema version</th></tr></thead>
+  <tbody>
+  {{range .SchemaVersions}}<tr><td>{{.Type}}</td><td>{{.Version}}</td></tr>
+  {{end}}</tbody>
+</table>
+{{end}}
 {{if .Authenticated}}
 <h2>Owner tools</h2>
 <ul>
@@ -627,8 +648,10 @@ var homeTmpl = template.Must(template.New("home").Parse(`<!doctype html>
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = homeTmpl.Execute(w, map[string]any{
-		"Authenticated": s.owner.Authenticated(r),
-		"BaseURL":       s.baseURL,
+		"Authenticated":  s.owner.Authenticated(r),
+		"BaseURL":        s.baseURL,
+		"NodeVersion":    s.nodeVersion,
+		"SchemaVersions": s.schemaVersions,
 	})
 }
 

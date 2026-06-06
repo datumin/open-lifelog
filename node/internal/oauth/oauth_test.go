@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -76,7 +77,7 @@ func newHarness(t *testing.T) *harness {
 		"meal:r": {scopes: []string{"lifelog:read:meal"}},
 	}
 	// Tests pin the node tz to UTC so window date assertions are offset-free.
-	s := New(store, "http://example.test", fo, grants, fl, []string{"weight", "meal", "sleep", "steps"}, time.UTC)
+	s := New(store, "http://example.test", fo, grants, fl, []string{"weight", "meal", "sleep", "steps"}, time.UTC, "test", nil)
 	s.Register(mux)
 	echo := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ti := auth.TokenInfoFromContext(r.Context())
@@ -1145,5 +1146,24 @@ func TestMCPRequiresBearer(t *testing.T) {
 	}
 	if wa := resp.Header.Get("WWW-Authenticate"); !strings.Contains(wa, "resource_metadata=") {
 		t.Errorf("401 must point at resource metadata, got %q", wa)
+	}
+}
+
+func TestHomeTemplateRendersVersions(t *testing.T) {
+	var buf bytes.Buffer
+	err := homeTmpl.Execute(&buf, map[string]any{
+		"Authenticated":  true,
+		"BaseURL":        "http://localhost:8787",
+		"NodeVersion":    "v0.1.0",
+		"SchemaVersions": []SchemaVersion{{Type: "meal", Version: "1.0"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"v0.1.0", "meal", "1.0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("home output missing %q\n%s", want, out)
+		}
 	}
 }

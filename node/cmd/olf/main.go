@@ -139,7 +139,11 @@ func serve(args []string) {
 	grants := pep.New(metaStore)
 	types := v.PayloadTypes()
 	adapter := linkAdapter{types: types}
-	authz := oauth.New(metaStore, *baseURL, own, grants, adapter, types, loc)
+	schemaVersions := make([]oauth.SchemaVersion, 0)
+	for _, tv := range v.SchemaVersions() {
+		schemaVersions = append(schemaVersions, oauth.SchemaVersion{Type: tv.Type, Version: tv.Version})
+	}
+	authz := oauth.New(metaStore, *baseURL, own, grants, adapter, types, loc, nodeVersion(), schemaVersions)
 	mcps := mcpserver.New(q, w, v, grants)
 	api := restapi.New(q, w, v, grants, types)
 
@@ -274,7 +278,7 @@ func tokenCmd(args []string) {
 	types := v.PayloadTypes()
 	// The token command issues/preserves grants but never parses window dates, so
 	// the timezone is irrelevant here; nil → host local in oauth.New.
-	authz := oauth.New(metaStore, *baseURL, own, grants, linkAdapter{types: types}, types, nil)
+	authz := oauth.New(metaStore, *baseURL, own, grants, linkAdapter{types: types}, types, nil, nodeVersion(), nil)
 
 	token, clientID, err := authz.IssueOwnerToken(*name, *surface, *capability, *ttl)
 	if err != nil {
